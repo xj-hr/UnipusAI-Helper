@@ -12,7 +12,7 @@
 | 项 | 当前值 |
 |---|---|
 | 分支 / HEAD | `main` / `7a06b31` |
-| 相对上游 | 领先 `origin/main` **7 个提交**（未推送；`origin` 无写权限） |
+| 相对上游 | 领先 `origin/main` **15 个提交**；已推 `fork/feat-brush-duration`（`45c1c6f`），`fork/main` 仍等于上游 |
 | 版本 | `APP_VERSION = "3.9.18"`（沿用上游版本，**未自行升版**） |
 | 测试 | `59/59`（Python）+ `56/56`（Node），2026-11-27 00:40 实测 |
 | 主要阻塞 | ① `origin` 403 无法推送 ② 刷时长真机链路未验证 |
@@ -25,7 +25,7 @@
 | 远端 | 地址 | 状态 |
 |---|---|---|
 | `origin` | `github.com/YSJohnson/UnipusAI-Helper` | 上游；`main` = `99dc849`（v3.9.18，2026-11-26，PR #74）；**本机凭据 `xj-hr` 无写权限，push 返回 403** |
-| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` 与上游一致（`99dc849`，无 tag）；推送走新分支，**勿覆盖 `fork/main`** |
+| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` 与上游一致（`99dc849`）；本地工作已推到 `feat-brush-duration`（`45c1c6f`）；**勿覆盖 `fork/main`** |
 | 本地 | `F:\UnipusAI-Helper` | `main` = 上游 + 7 个本地提交 |
 
 **归档标签（历史线，勿删）**
@@ -44,6 +44,7 @@
 | 日期 | 事项 | 提交 |
 |---|---|---|
 | 2026-11-27 | 新增 `AGENTS.md`（agent 宪法） | `7a06b31` |
+| 2026-11-27 | 本地 15 个提交推到 `fork/feat-brush-duration` | `45c1c6f` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
@@ -70,10 +71,9 @@
 | 优先级 | 事项 | 具体下一步 | 完成判据 | 阻塞 |
 |---|---|---|---|---|
 | P0 | 刷时长真机验收 | 桌面会话执行 `启动.cmd` → 登录 → 点「刷时长」→ 观察日志出现 `[页面]` 节次推进 | 日志有连续节次切换、按钮变「停止刷时长」、停止后能答题 | 需桌面环境（离屏会 `tab crashed`） |
-| P0 | 推送本地 7 个提交 | `git push fork main:refs/heads/feat-brush-duration` | fork 上出现新分支，`fork/main` 不变 | 无 |
 | P1 | 刷时长参数进 QML 配置面板 | `ConfigEditor.qml` 加分组 + `ConfigEditor` Qt 侧读写 `time_brushing` | 改间隔/范围后重启生效 | 无 |
 | P1 | 探针脚本迁移 | `archive-s0-s1-20261127:scripts/{probe_time_brushing,brush_pilot_3min}.py` 适配新 bot API 后放回 `scripts/` | 能跑通一次普查 | 依赖旧 `build_time_brushing_runner` 签名（已加 `manual` 参数） |
-| P2 | CI 首次运行验证 | 推 fork 后看 Actions 日志（依赖安装耗时、锁文件是否可装） | 三个 job 全绿 | 待 §4 P0 推送 |
+| P2 | CI 首次运行验证 | 在 fork 的 Actions 页手动启用工作流，再推一次触发 | 三个 job 全绿 | GitHub 对 fork 默认关闭 Actions（当前 `total_count=0`） |
 | P2 | 版本号策略 | 等上游发版后跟随递增；**不要**再自定 `v3.6.0` 这类低于上游的号 | `APP_VERSION` 与 tag 一致且不低于上游 | 无 |
 | P3 | `origin` 推送权限 | 换有权限的账号重登 GCM，或用 PAT，或走 fork + PR | `git push origin main` 成功 | 需账号侧操作 |
 
@@ -143,3 +143,4 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 | 首次建立：记录对齐 v3.9.18、刷时长接入、AGENTS.md 落地后的状态与待办 | `docs(交接README)` 提交 |
 | 2026-11-27 | §6 增加缺陷台账指针；台账登记 20 条问题 | `docs(缺陷台账)` 提交 |
 | 2026-11-27 | 按台账顺序修复：依赖锁定、CI 复建、裸 except 收敛；台账状态回写 | `e60204c` / `767c5e0` / `37f1723` |
+| 2026-11-27 | 推送 `feat-brush-duration` 到 fork；fork Actions 默认关闭，CI 未触发 | `45c1c6f` |
