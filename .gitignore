@@ -18,6 +18,10 @@ config-backups/
 # 测试脚本只在本地跑，不进版本库
 test_*.py
 tests/
+# 例外：刷时长模块的离线测试随功能一起入库（上游同步时若冲突，保留本例外即可）
+!tests/
+!tests/test_time_brushing.py
+!tests/test_time_brushing_controller.js
 .pytest_cache/
 # 本地排查产物（截图、真机扫描快照、探针脚本）
 output/
