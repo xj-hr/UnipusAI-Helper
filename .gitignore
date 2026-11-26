@@ -33,3 +33,7 @@ unipus-workbench-*/
 .cache/
 # 本地分析文档，不进版本库
 docs/answer-api.md
+# 本机项目管理数据（记忆、会话缓存）
+.workbuddy/
+# 机器相关启动器（内含本机 venv 绝对路径）
+启动.cmd
