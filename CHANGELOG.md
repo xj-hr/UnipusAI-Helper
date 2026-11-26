@@ -9,6 +9,9 @@
 - **`AGENTS.md`**：新增 agent 宪法，约束目录职责、开发原则、命名风格、测试要求、变更流程、提交检查与禁止事项；与本仓库实际结构、依赖与已知坑一一对应，随项目演进更新。
 - **`HANDOFF.md`**：新增新会话交接 README，记录仓库坐标、已完成、待办优先级、本地实测记录、已定决策与更新追踪；与代码同仓提交，随任务收尾更新。
 - **`docs/缺陷台账.md`**：新增全口径缺陷台账（20 条：P0×2 / P1×7 / P2×7 / P3×4），每条含证据位置、影响与修复建议，附可复跑的取证命令；修复后回写状态而不删行。
+- **依赖锁定**：新增 `requirements.lock`（uv 编译，164 行），覆盖 6 个直接依赖，CI 按锁文件安装。
+- **CI 复建**：`.github/workflows/ci.yml` 三 job —— `static`（compileall + 凭据扫描 + 锁文件一致性 + 版本号校验）、`tests`（锁文件装依赖 + 刷时长宿主测试）、`js`（页面内控制器测试）。
+- **裸 except 收敛**：`environment_checker.py` 3 处改为 `except Exception` / `except OSError`；主文件 72 处待排期（台账 D-02）。
 
 - **刷时长入口**：工作台新增「刷时长 / 停止刷时长」按钮，入口在 `Main.qml`，经 `WorkbenchController.start_brushing()` 调 `UCampusBot.build_time_brushing_runner()`；运行中按钮只置灰答题类操作，避免被 busy 锁死。
 - **模式互斥**：`UCampusBot` 新增 `mode_guard = ModeGuard()`，刷时长与答题（`run` / `quick`）共用同一门闩，互相拒绝并给出中文提示。

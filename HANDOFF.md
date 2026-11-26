@@ -61,7 +61,7 @@
 | 刷时长：页面内控制器 + Python 宿主 | 代码完整、离线测试通过；**未接真机验证** |
 | 刷时长：界面入口与模式互斥 | 已接通（`Main.qml` → `NativeBridge` → `WorkbenchController` → `UCampusBot`） |
 | 刷时长：参数可视化配置 | **没有**，只能改 `config.json` 的 `time_brushing` 段 |
-| CI | **没有**（旧线 `ci.yml` 在 `archive-s0-s1-20261127`，未迁移） |
+| CI | **已复建** `.github/workflows/ci.yml`（static / tests / js），GitHub 上尚未运行 |
 
 ---
 
@@ -73,7 +73,7 @@
 | P0 | 推送本地 7 个提交 | `git push fork main:refs/heads/feat-brush-duration` | fork 上出现新分支，`fork/main` 不变 | 无 |
 | P1 | 刷时长参数进 QML 配置面板 | `ConfigEditor.qml` 加分组 + `ConfigEditor` Qt 侧读写 `time_brushing` | 改间隔/范围后重启生效 | 无 |
 | P1 | 探针脚本迁移 | `archive-s0-s1-20261127:scripts/{probe_time_brushing,brush_pilot_3min}.py` 适配新 bot API 后放回 `scripts/` | 能跑通一次普查 | 依赖旧 `build_time_brushing_runner` 签名（已加 `manual` 参数） |
-| P2 | 重建 CI | 复用归档里的 `ci.yml` 骨架，改为跑 `59/56` 两套 + `compileall` | push 后 job 绿 | 需要先能推送 |
+| P2 | CI 首次运行验证 | 推 fork 后看 Actions 日志（依赖安装耗时、锁文件是否可装） | 三个 job 全绿 | 待 §4 P0 推送 |
 | P2 | 版本号策略 | 等上游发版后跟随递增；**不要**再自定 `v3.6.0` 这类低于上游的号 | `APP_VERSION` 与 tag 一致且不低于上游 | 无 |
 | P3 | `origin` 推送权限 | 换有权限的账号重登 GCM，或用 PAT，或走 fork + PR | `git push origin main` 成功 | 需账号侧操作 |
 
@@ -142,3 +142,4 @@ node tests/test_time_brushing_controller.js                                     
 |---|---|---|
 | 2026-11-27 | 首次建立：记录对齐 v3.9.18、刷时长接入、AGENTS.md 落地后的状态与待办 | `docs(交接README)` 提交 |
 | 2026-11-27 | §6 增加缺陷台账指针；台账登记 20 条问题 | `docs(缺陷台账)` 提交 |
+| 2026-11-27 | 按台账顺序修复：依赖锁定、CI 复建、裸 except 收敛；台账状态回写 | `e60204c` / `767c5e0` / `37f1723` |
