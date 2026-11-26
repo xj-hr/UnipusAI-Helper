@@ -47,6 +47,7 @@
 | 2026-11-27 | 本地 15 个提交推到 `fork/feat-brush-duration` | `45c1c6f` |
 | 2026-11-27 | CI 首次全绿：run `45878270277`（2m26s，static/tests/js 三 job 通过） | `2303e27` |
 | 2026-11-27 | `fork/main` 补齐 lock/tests/assets/模块，main 分支 run `45879373438` 三 job 全绿 | `f54d14a` |
+| 2026-11-27 | 低风险缺陷修复：QML Shortcut 警告、`shell=True`、启动脚本示例 | `889feff` / `f368033` / `3f8732a` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |

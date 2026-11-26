@@ -12,6 +12,9 @@
 - **依赖锁定**：新增 `requirements.lock`（uv 编译，164 行），覆盖 6 个直接依赖，CI 按锁文件安装。
 - **CI 复建**：`.github/workflows/ci.yml` 三 job —— `static`（compileall + 凭据扫描 + 锁文件一致性 + 版本号校验）、`tests`（锁文件装依赖 + 刷时长宿主测试）、`js`（页面内控制器测试）。
 - **裸 except 收敛**：`environment_checker.py` 3 处改为 `except Exception` / `except OSError`；主文件 72 处待排期（台账 D-02）。
+- **安装程序启动**：`subprocess.Popen` 去掉 `shell=True`，避免路径含空格时的解析问题（台账 D-07）。
+- **配置窗口快捷键**：改用 `sequences: [StandardKey.Save/Close]`，消除 Qt 运行期「只绑定一个组合键」警告（台账 D-06）。
+- **启动脚本示例**：新增 `启动.cmd.example`（`%~dp0` 自适应、解释器与主程序存在性自检），真实 `启动.cmd` 仍只在本机（台账 D-15）。
 
 - **刷时长入口**：工作台新增「刷时长 / 停止刷时长」按钮，入口在 `Main.qml`，经 `WorkbenchController.start_brushing()` 调 `UCampusBot.build_time_brushing_runner()`；运行中按钮只置灰答题类操作，避免被 busy 锁死。
 - **模式互斥**：`UCampusBot` 新增 `mode_guard = ModeGuard()`，刷时长与答题（`run` / `quick`）共用同一门闩，互相拒绝并给出中文提示。
