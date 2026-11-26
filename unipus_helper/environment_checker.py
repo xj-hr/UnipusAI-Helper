@@ -349,7 +349,7 @@ class EnvironmentChecker:
             urllib.request.urlretrieve(self.browser.installer_url, installer_path)
             print(f"    下载完成")
             print("    启动安装程序...")
-            subprocess.Popen([installer_path], shell=True)
+            subprocess.Popen([installer_path])
             print(f"\n  请完成 {self.browser.display_name} 安装后，重新运行本程序")
             input("按回车键退出...")
             return False
