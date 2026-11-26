@@ -5,7 +5,8 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # feat-brush-duration 是本 fork 的工作分支：推它也要跑流水线
+    branches: [main, feat-brush-duration]
     tags: ["v*"]
   pull_request:
   # 手动触发：fork 场景下不必推空提交也能验证流水线
