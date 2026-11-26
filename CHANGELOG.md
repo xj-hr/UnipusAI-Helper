@@ -6,6 +6,8 @@
 
 ## 未发布（本 fork）
 
+- **`AGENTS.md`**：新增 agent 宪法，约束目录职责、开发原则、命名风格、测试要求、变更流程、提交检查与禁止事项；与本仓库实际结构、依赖与已知坑一一对应，随项目演进更新。
+
 - **刷时长入口**：工作台新增「刷时长 / 停止刷时长」按钮，入口在 `Main.qml`，经 `WorkbenchController.start_brushing()` 调 `UCampusBot.build_time_brushing_runner()`；运行中按钮只置灰答题类操作，避免被 busy 锁死。
 - **模式互斥**：`UCampusBot` 新增 `mode_guard = ModeGuard()`，刷时长与答题（`run` / `quick`）共用同一门闩，互相拒绝并给出中文提示。
 - **手动放行**：界面点击视为显式意图，`time_brushing.enabled=false` 时按手动模式启动并在日志注明；`config.example.json` 已补 `time_brushing` 配置段说明。
