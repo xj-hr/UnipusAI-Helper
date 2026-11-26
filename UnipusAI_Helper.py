@@ -24,6 +24,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from unipus_helper.paths import PROJECT_ROOT
 
+# 刷时长模块（独立链路）：仅标准库依赖，不反向 import 本文件
+import time_brushing as time_brushing_module
+
 BASE_DIR = str(PROJECT_ROOT)
 
 
@@ -218,6 +221,12 @@ class Config:
     answer_api_secret: str = ""
     answer_api_host: str = ""
     answer_api_timeout: float = 30.0
+    # 刷时长配置块（config.json 的 time_brushing 子对象）；缺省即用模块内置默认值
+    time_brushing: Dict[str, Any] = field(default_factory=dict)
+
+    def time_brushing_settings(self) -> "time_brushing_module.TimeBrushingSettings":
+        """把 config.json 的 time_brushing 子对象归一化为不可变运行配置。"""
+        return time_brushing_module.TimeBrushingSettings(self.time_brushing)
 
     @property
     def ai_configured(self) -> bool:
@@ -274,6 +283,7 @@ class Config:
             answer_api_secret=(data.get("answer_api_secret") or "").strip(),
             answer_api_host=(data.get("answer_api_host") or "").strip(),
             answer_api_timeout=answer_api_timeout,
+            time_brushing=data.get("time_brushing") if isinstance(data.get("time_brushing"), dict) else {},
         )
 
 
@@ -13703,12 +13713,41 @@ class UCampusBot:
         self._shutdown_event = threading.Event()
         self._background_threads = []
         self.driver = None
+        # 长任务模式互斥：刷时长与答题共享同一门闩，避免两边抢顶部 Tab
+        self.mode_guard = time_brushing_module.ModeGuard()
+        self.time_brushing_runner = None
 
         if not skip_check:
             self._ensure_environment()
 
         self.driver = self._create_driver()
         self.popup_watcher = PopupWatcher(self.driver)
+
+    def build_time_brushing_runner(self, log: Optional[Callable] = None,
+                                   manual: bool = False) -> "time_brushing_module.TimeBrushingRunner":
+        """按当前 config 构造刷时长宿主（每次启动重建，保证读到最新配置）。
+
+        宿主自身会通过 `mode_guard` 与答题模式互斥；driver 未就绪时直接抛错，
+        由调用方（工作台控制器）转成界面提示。
+        `manual=True` 表示用户在界面上显式点击：配置里 `enabled=false` 时仍放行，
+        并记一条日志说明当前按手动模式启动。
+        """
+        if self.driver is None:
+            raise RuntimeError("浏览器尚未就绪，无法启动刷时长。")
+        settings = self.config.time_brushing_settings()
+        if manual and not settings.enabled:
+            raw = dict(self.config.time_brushing or {})
+            raw["enabled"] = True
+            settings = time_brushing_module.TimeBrushingSettings(raw)
+            if log:
+                log("[刷时长] 配置未启用（time_brushing.enabled=false），按手动模式启动")
+        self.time_brushing_runner = time_brushing_module.TimeBrushingRunner(
+            self.driver,
+            settings=settings,
+            log=log,
+            guard=self.mode_guard,
+        )
+        return self.time_brushing_runner
 
     def _ensure_environment(self):
         checker = EnvironmentChecker(self.browser.key)
