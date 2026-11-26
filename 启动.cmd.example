@@ -1,0 +1,67 @@
+@echo off
+chcp 65001 >nul
+title UnipusAI-Helper
+setlocal
+
+rem ============================================================
+rem  启动脚本示例：复制为「启动.cmd」后按本机情况修改两处路径
+rem  「启动.cmd」已被 .gitignore 忽略，避免把本机绝对路径提交进仓库
+rem ============================================================
+
+rem 项目目录：默认取脚本所在目录，若把脚本放在别处请改成绝对路径
+set "APPDIR=%~dp0"
+
+rem Python 解释器：默认用项目内 .venv，若使用外部 venv 请改成绝对路径
+set "PY=%APPDIR%.venv\Scripts\python.exe"
+
+set "APP=%APPDIR%UnipusAI_Helper.py"
+
+if not exist "%PY%" (
+    echo [错误] 未找到 Python 解释器：
+    echo        %PY%
+    echo        请修改本脚本第 14 行的 PY 变量，或在项目内创建 .venv。
+    echo.
+    pause
+    exit /b 1
+)
+
+if not exist "%APP%" (
+    echo [错误] 未找到主程序：
+    echo        %APP%
+    echo.
+    pause
+    exit /b 1
+)
+
+cd /d "%APPDIR%"
+set "PYTHONIOENCODING=utf-8"
+
+echo ============================================================
+echo   UnipusAI-Helper 启动器
+echo   Python : %PY%
+echo   WorkDir: %CD%
+echo ============================================================
+echo.
+
+if not exist "%APPDIR%config.json" (
+    echo [警告] 未找到 config.json，程序可能报错。
+    echo        可先复制 config.example.json 为 config.json 并填写账号与大模型配置。
+    echo.
+)
+
+echo 正在启动，请勿关闭本窗口；需要退出时，关闭程序界面窗口即可。
+echo.
+
+"%PY%" "%APP%" --skip-check
+
+set "RC=%ERRORLEVEL%"
+echo.
+if "%RC%"=="0" (
+    echo [已退出] 程序正常结束。
+) else (
+    echo [已退出] 程序异常结束，返回码 %RC%
+    echo          日志见 %APPDIR%logs\
+)
+echo.
+pause
+endlocal
