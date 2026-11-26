@@ -8,6 +8,8 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # 手动触发：fork 场景下不必推空提交也能验证流水线
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
