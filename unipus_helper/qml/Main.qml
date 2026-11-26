@@ -204,6 +204,18 @@ ApplicationWindow {
                     objectName: "processPage"; visible: window.currentPage === 0; text: "处理当前页"; iconName: "page"; implicitHeight: window.compactHeight ? 36 : 40
                     hint: "直接处理课程浏览器中已打开的题目"; enabled: window.appState.ready && !window.busy; onClicked: quickDialog.open()
                 }
+                ActionButton {
+                    // 刷时长入口：与答题互斥，运行中变「停止」，避免被 busy 锁死
+                    objectName: "timeBrushing"; visible: window.currentPage === 0
+                    text: window.appState.brushing ? "停止刷时长" : "刷时长"
+                    iconName: window.appState.brushing ? "stop" : "play"
+                    implicitHeight: window.compactHeight ? 36 : 40
+                    hint: window.appState.brushing
+                          ? "结束本次刷时长并释放模式占用"
+                          : "按配置的层级与间隔自动切换节次（与答题互斥）"
+                    enabled: window.appState.brushing ? true : (window.appState.ready && !window.busy)
+                    onClicked: window.appState.brushing ? workbench.stopBrushing() : workbench.startBrushing()
+                }
                 UiText { visible: window.currentPage === 1; text: (window.appState.logs || []).length + " 条日志"; font.pixelSize: 13; color: Theme.muted }
                 Item { Layout.fillWidth: true }
                 ActionButton {

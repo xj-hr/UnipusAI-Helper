@@ -361,6 +361,16 @@ class NativeBridge(QObject):
     def stop(self):
         self._result(self.controller.stop())
 
+    @Slot(result=bool)
+    def startBrushing(self):
+        result = self.controller.start_brushing()
+        self._result(result)
+        return bool(result.get("ok"))
+
+    @Slot()
+    def stopBrushing(self):
+        self._result(self.controller.stop_brushing())
+
     @Slot()
     def restartBrowser(self):
         self._result(self.controller.restart_browser())

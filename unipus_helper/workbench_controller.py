@@ -58,6 +58,8 @@ class WorkbenchController(CourseCatalogMixin):
         self._api_status, self._api_ok, self._api_fail = (
             ("未检测", False, False) if self._has_ai_config() else ("未配置 API", False, False)
         )
+        self._brushing = False
+        self._brush_runner = None
         self._log_worker = threading.Thread(target=self._collect_logs, daemon=True, name="workbench-logs")
         self._log_worker.start()
 
@@ -181,6 +183,7 @@ class WorkbenchController(CourseCatalogMixin):
             return copy.deepcopy({
                 "version": self._globals.get("APP_VERSION", "3.9.18"),
                 "ready": self._ready, "busy": self._operation is not None, "operation": self._operation,
+                "brushing": self._brushing,
                 "status": self._status, "error": self._error,
                 "excludeUngraded": self._exclude_ungraded, "debug": bool(self._globals.get("DEBUG_MODE")),
                 "tasks": tasks, "logs": self._logs, "account": account,
@@ -262,15 +265,23 @@ class WorkbenchController(CourseCatalogMixin):
                                       and t.get("status") != "done" and selectable_task(t, self._exclude_ungraded)}
                 self._add_log(f"扫描完成，共发现 {len(tasks)} 项任务。", "success")
             else:
-                if action == "run":
-                    with self._lock:
-                        selected = [t for t in self._tasks if t["id"] in self._selected]
-                    self.solver.process_selected_tabs(
-                        selected, on_task_done=self._task_done, on_task_skipped=self._task_skipped)
-                else:
-                    self.solver.processed_hashes.clear()
-                    if not self.solver.solve_current_page() and not self.solver._should_stop():
-                        raise RuntimeError("当前页面未处理完成，请查看运行日志。")
+                guard = getattr(self.bot, "mode_guard", None)
+                if guard is not None and not guard.acquire("solving"):
+                    owner = guard.owner or "其他"
+                    raise RuntimeError(f"当前处于「{owner}」模式，答题与刷时长互斥，请先停止刷时长。")
+                try:
+                    if action == "run":
+                        with self._lock:
+                            selected = [t for t in self._tasks if t["id"] in self._selected]
+                        self.solver.process_selected_tabs(
+                            selected, on_task_done=self._task_done, on_task_skipped=self._task_skipped)
+                    else:
+                        self.solver.processed_hashes.clear()
+                        if not self.solver.solve_current_page() and not self.solver._should_stop():
+                            raise RuntimeError("当前页面未处理完成，请查看运行日志。")
+                finally:
+                    if guard is not None:
+                        guard.release("solving")
             with self._lock:
                 stopped = self._stop_requested.is_set() or (self.solver is not None and self.solver._should_stop())
                 self._status = "已停止" if stopped else "就绪"
@@ -307,10 +318,78 @@ class WorkbenchController(CourseCatalogMixin):
         else:
             self._add_log(f"已跳过（无需作答）：{task.get('l1_title', '')}", "info")
 
+    def start_brushing(self):
+        """启动刷时长：与答题模式互斥，宿主由 UCampusBot 构建。"""
+        with self._lock:
+            if self._closed.is_set() or not self._ready or self._operation:
+                return {"ok": False, "error": "请等待登录或当前操作完成。"}
+            if self._brushing:
+                return {"ok": False, "error": "刷时长已在运行。"}
+            if not self.bot or not hasattr(self.bot, "build_time_brushing_runner"):
+                return {"ok": False, "error": "当前环境不支持刷时长。"}
+            guard = getattr(self.bot, "mode_guard", None)
+            owner = guard.blocked_by("brushing") if guard is not None else None
+            if owner:
+                return {"ok": False, "error": f"当前处于「{owner}」模式，刷时长与答题互斥。"}
+            self._operation = "brush"
+            self._error = ""
+            self._status = "正在刷时长"
+            self._brushing = True
+            self._stop_requested.clear()
+
+        try:
+            runner = self.bot.build_time_brushing_runner(log=self._add_log, manual=True)
+        except Exception as exc:  # noqa: BLE001 - 启动失败需回滚状态并回显
+            with self._lock:
+                self._brushing = False
+                self._operation = None
+                self._status = "就绪"
+            return {"ok": False, "error": self._redact(exc)[:250]}
+        self._brush_runner = runner
+
+        def run():
+            started = False
+            try:
+                started = bool(runner.start())
+            except Exception as exc:  # noqa: BLE001
+                self._add_log(f"刷时长启动异常：{type(exc).__name__}: {exc}", "error")
+            if started:
+                # runner 自带看护线程：轮询存活状态，退出即视为本次刷时长结束
+                while runner.running and not self._closed.is_set():
+                    time.sleep(.5)
+                self._add_log("刷时长已结束。", "success")
+            with self._lock:
+                self._brushing = False
+                self._operation = None
+                if self._status == "正在刷时长":
+                    self._status = "就绪"
+
+        self._worker = threading.Thread(target=run, daemon=True, name="course-brushing")
+        self._worker.start()
+        return {"ok": True}
+
+    def stop_brushing(self):
+        runner = self._brush_runner
+        if runner is None or not self._brushing:
+            return {"ok": False, "error": "刷时长未在运行。"}
+        with self._lock:
+            self._status = "正在停止刷时长"
+        try:
+            runner.stop()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": self._redact(exc)[:250]}
+        return {"ok": True}
+
     def stop(self):
         self._stop_requested.set()
         if self.solver:
             self.solver.request_stop()
+        runner = self._brush_runner
+        if runner is not None and self._brushing:
+            try:
+                runner.stop()
+            except Exception as exc:  # noqa: BLE001 - 停止失败只记日志，不阻断其余模式
+                self._add_log(f"停止刷时长失败：{type(exc).__name__}: {exc}", "warning")
         with self._lock:
             if self._operation:
                 self._status = "正在停止"
