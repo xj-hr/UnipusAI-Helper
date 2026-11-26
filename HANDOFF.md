@@ -25,7 +25,7 @@
 | 远端 | 地址 | 状态 |
 |---|---|---|
 | `origin` | `github.com/YSJohnson/UnipusAI-Helper` | 上游；`main` = `99dc849`（v3.9.18，2026-11-26，PR #74）；**本机凭据 `xj-hr` 无写权限，push 返回 403** |
-| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` 与上游一致（`99dc849`）；本地工作已推到 `feat-brush-duration`（`45c1c6f`）；**勿覆盖 `fork/main`** |
+| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` = `3ef2223`（上游 `99dc849` + 仅 `ci.yml` 一个文件，用于登记工作流）；本地全部工作推到 `feat-brush-duration`（`5eb920a`）；**勿再覆盖 `fork/main`** |
 | 本地 | `F:\UnipusAI-Helper` | `main` = 上游 + 7 个本地提交 |
 
 **归档标签（历史线，勿删）**
@@ -73,7 +73,7 @@
 | P0 | 刷时长真机验收 | 桌面会话执行 `启动.cmd` → 登录 → 点「刷时长」→ 观察日志出现 `[页面]` 节次推进 | 日志有连续节次切换、按钮变「停止刷时长」、停止后能答题 | 需桌面环境（离屏会 `tab crashed`） |
 | P1 | 刷时长参数进 QML 配置面板 | `ConfigEditor.qml` 加分组 + `ConfigEditor` Qt 侧读写 `time_brushing` | 改间隔/范围后重启生效 | 无 |
 | P1 | 探针脚本迁移 | `archive-s0-s1-20261127:scripts/{probe_time_brushing,brush_pilot_3min}.py` 适配新 bot API 后放回 `scripts/` | 能跑通一次普查 | 依赖旧 `build_time_brushing_runner` 签名（已加 `manual` 参数） |
-| P2 | CI 首次运行验证 | fork 页 → Actions → 启用工作流 → 选 `ci` → `Run workflow`（已加 `workflow_dispatch`） | 三个 job 全绿 | GitHub 对 fork 默认关闭 Actions（`total_count=0`），`gh` 本地 token 无效无法代操作 |
+| P2 | CI 首次成功运行 | `Actions` → `ci` → `Run workflow` → 分支选 `feat-brush-duration`（该分支有 lock/tests/assets） | 三个 job 全绿 | 工作流已登记（`active`）；`main` 上触发的第 1 次运行 3 job 全失败，因 main 缺 `requirements.lock`/`tests/`/`assets/` |
 | P2 | 版本号策略 | 等上游发版后跟随递增；**不要**再自定 `v3.6.0` 这类低于上游的号 | `APP_VERSION` 与 tag 一致且不低于上游 | 无 |
 | P3 | `origin` 推送权限 | 换有权限的账号重登 GCM，或用 PAT，或走 fork + PR | `git push origin main` 成功 | 需账号侧操作 |
 
@@ -145,3 +145,4 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 | 按台账顺序修复：依赖锁定、CI 复建、裸 except 收敛；台账状态回写 | `e60204c` / `767c5e0` / `37f1723` |
 | 2026-11-27 | 推送 `feat-brush-duration` 到 fork；fork Actions 默认关闭，CI 未触发 | `45c1c6f` |
 | 2026-11-27 | `ci.yml` 增加 `workflow_dispatch`，可手动触发；已推 fork | `aa0d38b` |
+| 2026-11-27 | 仅 `ci.yml` 推到 `fork/main`（`3ef2223`）登记工作流；推送触发的首次运行 3 job 全失败（main 缺 lock/tests/assets） | `3ef2223` |
