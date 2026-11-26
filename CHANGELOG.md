@@ -4,6 +4,12 @@
 
 ---
 
+## 未发布（本 fork）
+
+- **刷时长入口**：工作台新增「刷时长 / 停止刷时长」按钮，入口在 `Main.qml`，经 `WorkbenchController.start_brushing()` 调 `UCampusBot.build_time_brushing_runner()`；运行中按钮只置灰答题类操作，避免被 busy 锁死。
+- **模式互斥**：`UCampusBot` 新增 `mode_guard = ModeGuard()`，刷时长与答题（`run` / `quick`）共用同一门闩，互相拒绝并给出中文提示。
+- **手动放行**：界面点击视为显式意图，`time_brushing.enabled=false` 时按手动模式启动并在日志注明；`config.example.json` 已补 `time_brushing` 配置段说明。
+
 ## v3.9.18（2026-11-26）
 
 修复批量处理目录切换超时跳题与简答/写作/My voice 页提交确认超时问题（issue #73）。

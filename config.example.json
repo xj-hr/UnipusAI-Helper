@@ -18,5 +18,20 @@
   "tts_proxy": "",
   "screenshot": false,
   "answer_api_enabled": true,
-  "browser": "edge"
+  "browser": "edge",
+  "time_brushing": {
+    "enabled": false,
+    "switchLevel": 3,
+    "switchInterval": 5,
+    "randomInterval": true,
+    "range": true,
+    "rangeStart": 1,
+    "rangeEnd": 8,
+    "chaptersPerUnit": 6,
+    "loop": true,
+    "minIntervalMs": 30000,
+    "clickMode": "events",
+    "maxLayerMisses": 3,
+    "profile": "current"
+  }
 }
