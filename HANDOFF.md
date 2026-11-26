@@ -25,7 +25,7 @@
 | 远端 | 地址 | 状态 |
 |---|---|---|
 | `origin` | `github.com/YSJohnson/UnipusAI-Helper` | 上游；`main` = `99dc849`（v3.9.18，2026-11-26，PR #74）；**本机凭据 `xj-hr` 无写权限，push 返回 403** |
-| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` = `3ef2223`（上游 `99dc849` + 仅 `ci.yml` 一个文件，用于登记工作流）；本地全部工作推到 `feat-brush-duration`（`5eb920a`）；**勿再覆盖 `fork/main`** |
+| `fork` | `github.com/xj-hr/UnipusAI-Helper` | 个人 fork；`main` = `f54d14a`（上游 `99dc849` + `ci.yml`、`requirements.lock`、`time_brushing.py`、`assets/`、`tests/` 共 6 个文件，用于让 main 分支 CI 也绿）；工作分支 `feat-brush-duration`；**向上游提 PR 时须剔除这 6 个文件** |
 | 本地 | `F:\UnipusAI-Helper` | `main` = 上游 + 7 个本地提交 |
 
 **归档标签（历史线，勿删）**
@@ -46,6 +46,7 @@
 | 2026-11-27 | 新增 `AGENTS.md`（agent 宪法） | `7a06b31` |
 | 2026-11-27 | 本地 15 个提交推到 `fork/feat-brush-duration` | `45c1c6f` |
 | 2026-11-27 | CI 首次全绿：run `45878270277`（2m26s，static/tests/js 三 job 通过） | `2303e27` |
+| 2026-11-27 | `fork/main` 补齐 lock/tests/assets/模块，main 分支 run `45879373438` 三 job 全绿 | `f54d14a` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
@@ -148,3 +149,4 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 | `ci.yml` 增加 `workflow_dispatch`，可手动触发；已推 fork | `aa0d38b` |
 | 2026-11-27 | 仅 `ci.yml` 推到 `fork/main`（`3ef2223`）登记工作流；推送触发的首次运行 3 job 全失败（main 缺 lock/tests/assets） | `3ef2223` |
 | 2026-11-27 | `on.push.branches` 加 `feat-brush-duration`；该分支 push 自动跑通三 job | `2303e27` |
+| 2026-11-27 | `fork/main` 补 lock/tests/assets 后 CI 在 main 上同样全绿 | `f54d14a` |
