@@ -126,7 +126,7 @@ class EnvironmentChecker:
             first_line = result.stdout.split('\n')[0]
             version = first_line.split()[2] if len(first_line.split()) > 2 else "未知版本"
             return version
-        except:
+        except Exception:
             return "未知版本"
 
     def _resolve_ffprobe_path(self, ffmpeg_path: str, prefer_path_lookup: bool = False) -> Optional[str]:
@@ -244,7 +244,7 @@ class EnvironmentChecker:
 
             try:
                 os.remove(zip_path)
-            except:
+            except OSError:
                 pass
 
             print("\n  请重新运行本程序以加载新的环境变量")
@@ -298,7 +298,7 @@ class EnvironmentChecker:
 
         try:
             current_path, _ = winreg.QueryValueEx(key, "Path")
-        except:
+        except OSError:
             current_path = ""
 
         paths = [p.strip() for p in current_path.split(os.pathsep) if p.strip()]
