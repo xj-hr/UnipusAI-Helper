@@ -73,7 +73,7 @@
 | P0 | 刷时长真机验收 | 桌面会话执行 `启动.cmd` → 登录 → 点「刷时长」→ 观察日志出现 `[页面]` 节次推进 | 日志有连续节次切换、按钮变「停止刷时长」、停止后能答题 | 需桌面环境（离屏会 `tab crashed`） |
 | P1 | 刷时长参数进 QML 配置面板 | `ConfigEditor.qml` 加分组 + `ConfigEditor` Qt 侧读写 `time_brushing` | 改间隔/范围后重启生效 | 无 |
 | P1 | 探针脚本迁移 | `archive-s0-s1-20261127:scripts/{probe_time_brushing,brush_pilot_3min}.py` 适配新 bot API 后放回 `scripts/` | 能跑通一次普查 | 依赖旧 `build_time_brushing_runner` 签名（已加 `manual` 参数） |
-| P2 | CI 首次运行验证 | 在 fork 的 Actions 页手动启用工作流，再推一次触发 | 三个 job 全绿 | GitHub 对 fork 默认关闭 Actions（当前 `total_count=0`） |
+| P2 | CI 首次运行验证 | fork 页 → Actions → 启用工作流 → 选 `ci` → `Run workflow`（已加 `workflow_dispatch`） | 三个 job 全绿 | GitHub 对 fork 默认关闭 Actions（`total_count=0`），`gh` 本地 token 无效无法代操作 |
 | P2 | 版本号策略 | 等上游发版后跟随递增；**不要**再自定 `v3.6.0` 这类低于上游的号 | `APP_VERSION` 与 tag 一致且不低于上游 | 无 |
 | P3 | `origin` 推送权限 | 换有权限的账号重登 GCM，或用 PAT，或走 fork + PR | `git push origin main` 成功 | 需账号侧操作 |
 
@@ -144,3 +144,4 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 | §6 增加缺陷台账指针；台账登记 20 条问题 | `docs(缺陷台账)` 提交 |
 | 2026-11-27 | 按台账顺序修复：依赖锁定、CI 复建、裸 except 收敛；台账状态回写 | `e60204c` / `767c5e0` / `37f1723` |
 | 2026-11-27 | 推送 `feat-brush-duration` 到 fork；fork Actions 默认关闭，CI 未触发 | `45c1c6f` |
+| 2026-11-27 | `ci.yml` 增加 `workflow_dispatch`，可手动触发；已推 fork | `aa0d38b` |
