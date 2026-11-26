@@ -34,9 +34,10 @@ ApplicationWindow {
         target: configEditor
         function onSaved(message, ok) { window.notice = message; window.noticeOk = ok; if (ok && configEditor.firstRun) window.close() }
     }
-    Shortcut { sequence: StandardKey.Save; onActivated: window.saveSettings() }
+    // StandardKey 会映射到多个组合键，必须用 sequences 一次性声明，否则 Qt 报警告且只绑一个
+    Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveSettings() }
     Shortcut { sequence: "Escape"; onActivated: window.close() }
-    Shortcut { sequence: StandardKey.Close; onActivated: window.close() }
+    Shortcut { sequences: [StandardKey.Close]; onActivated: window.close() }
 
     ColumnLayout {
         anchors.fill: parent
