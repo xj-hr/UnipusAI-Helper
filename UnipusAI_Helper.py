@@ -1,4 +1,5 @@
 import hashlib, json, logging, os, sys, random, re, tempfile, threading, time, base64
+import weakref
 try:
     import winsound
 except ImportError:
@@ -191,6 +192,54 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     if text in ("", "none", "null"):
         return default
     return text not in ("0", "false", "no", "off", "disabled", "disable")
+
+
+# ---------------------------------------------------------------------------
+# 可中断等待（缺陷台账 D-05）
+# 全文件统一用 interruptible_sleep 替代 time.sleep：等待期间任一停止信号置位即提前返回，
+# 避免「点了停止还要等完当前 sleep」。语义与 time.sleep 一致，只是更早收手。
+# ---------------------------------------------------------------------------
+_raw_sleep = time.sleep
+#: 已登记的停止信号（AISolver / UCampusBot 构造时登记；弱引用，实例回收后自动移除）
+_STOP_SIGNALS = weakref.WeakSet()
+
+
+def register_stop_signal(event) -> None:
+    """登记一个 threading.Event 作为停止信号。"""
+    if event is not None:
+        _STOP_SIGNALS.add(event)
+
+
+def stop_requested() -> bool:
+    """任一已登记信号置位，即视为需要尽快收手。"""
+    for event in list(_STOP_SIGNALS):
+        try:
+            if event.is_set():
+                return True
+        except Exception:  # noqa: BLE001 - 已销毁的事件按「未置位」处理
+            continue
+    return False
+
+
+def interruptible_sleep(seconds, chunk: float = 0.25) -> bool:
+    """替代 time.sleep：分片等待，停止信号置位时提前返回。
+
+    返回 True 表示被打断。分片上限 0.25s，对短等待只多几次循环，开销可忽略。
+    """
+    try:
+        remaining = float(seconds)
+    except (TypeError, ValueError):
+        remaining = 0.0
+    if remaining <= 0:
+        _raw_sleep(remaining)
+        return False
+    while remaining > 0:
+        if stop_requested():
+            return True
+        step = chunk if remaining > chunk else remaining
+        _raw_sleep(step)
+        remaining -= step
+    return stop_requested()
 
 
 @dataclass(frozen=True)
@@ -709,7 +758,7 @@ class WebDriverHelper:
     @staticmethod
     def human_like_delay(base_delay: float = 0.1) -> None:
         delay = base_delay * (0.8 + random.random() * 0.4)
-        time.sleep(delay)
+        interruptible_sleep(delay)
 
     @staticmethod
     def simulate_typing(driver, element, text: str) -> None:
@@ -720,7 +769,7 @@ class WebDriverHelper:
         WebDriverHelper.human_like_delay(0.1)
         for char in text:
             element.send_keys(char)
-            time.sleep(random.uniform(0.01, 0.05))
+            interruptible_sleep(random.uniform(0.01, 0.05))
         driver.execute_script("""
             arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
             arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
@@ -736,7 +785,7 @@ class WebDriverHelper:
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                     element
                 )
-                time.sleep(0.3)
+                interruptible_sleep(0.3)
 
                 try:
                     element.click()
@@ -746,11 +795,11 @@ class WebDriverHelper:
 
             except StaleElementReferenceException:
                 if i < retries - 1:
-                    time.sleep(1)
+                    interruptible_sleep(1)
                     continue
             except Exception as e:
                 if i < retries - 1:
-                    time.sleep(0.5)
+                    interruptible_sleep(0.5)
                     continue
                 error_msg = str(e)
                 print(f"操作失败: {error_msg[:50]}")
@@ -987,7 +1036,7 @@ class OpenAICompatibleClient:
                         if stop_requested.wait(delay):
                             return None
                     else:
-                        time.sleep(delay)
+                        interruptible_sleep(delay)
                 error_msg = str(e)
                 print(f"AI调用失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
@@ -3539,7 +3588,7 @@ class DropdownSelectStrategy(QuestionParserStrategy):
     def _peek_dropdown_options(driver, trigger) -> List[str]:
         try:
             ActionChains(driver).move_to_element(trigger).click().perform()
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
             items = driver.find_elements(By.CSS_SELECTOR,
                                          '.ant-select-item-option, .ant-dropdown-menu-item, '
                                          '[role="option"], li[class*="option"]')
@@ -4942,7 +4991,7 @@ class AnswerExecutor:
         try:
             if not self.driver.execute_script(js, q.element, order):
                 return False
-            time.sleep(0.4)
+            interruptible_sleep(0.4)
             return self._current_sorting_order(q) == order
         except Exception as e:
             print(f"\tReact 排序失败: {str(e)[:60]}")
@@ -4964,9 +5013,9 @@ class AnswerExecutor:
                     return False
 
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", source)
-                time.sleep(0.2)
+                interruptible_sleep(0.2)
                 ActionChains(self.driver).click_and_hold(source).pause(0.2).move_to_element(target).pause(0.2).release().perform()
-                time.sleep(0.5)
+                interruptible_sleep(0.5)
 
             return self._current_sorting_order(q) == order
         except Exception as e:
@@ -5023,7 +5072,7 @@ class AnswerExecutor:
         """
         try:
             result = self.driver.execute_script(js, q.element, order)
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
             return bool(result) and self._current_sorting_order(q) == order
         except Exception as e:
             print(f"\tJS排序失败: {str(e)[:60]}")
@@ -5056,7 +5105,7 @@ class AnswerExecutor:
                         "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                         blank['input']
                     )
-                    time.sleep(0.3)
+                    interruptible_sleep(0.3)
 
                     if not self._fill_text_input_verified(blank['input'], clean_word):
                         print(f"        空{i + 1}: 写入后校验失败，跳过该空")
@@ -5311,7 +5360,7 @@ class AnswerExecutor:
         try:
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'})", button)
-            time.sleep(0.3)
+            interruptible_sleep(0.3)
             button.click()
         except Exception as exc:
             print(f"\t点击 start 失败: {str(exc)[:60]}")
@@ -5355,7 +5404,7 @@ class AnswerExecutor:
                             print("\t朗读录音结束，点击停止")
                         except Exception:
                             pass
-            time.sleep(2)
+            interruptible_sleep(2)
         return None
 
     def _answer_vocabulary_read_aloud(self, q: Question) -> bool:
@@ -5653,11 +5702,11 @@ class AnswerExecutor:
                 return False
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", button)
-            time.sleep(0.3)
+            interruptible_sleep(0.3)
             if not WebDriverHelper.safe_click(self.driver, button):
                 print(f"\t第 {idx + 1} 条: 点击录音失败")
                 return False
-            time.sleep(clip + 1.0)
+            interruptible_sleep(clip + 1.0)
             stop_button = self._record_button(q, idx)
             if stop_button is None or not WebDriverHelper.safe_click(
                     self.driver, stop_button):
@@ -5675,7 +5724,7 @@ class AnswerExecutor:
                 print(f"\t第 {idx + 1} 条: 得分 {score}")
                 if int(score) >= self.RECORD_MIN_SCORE:
                     return True
-            time.sleep(0.6)
+            interruptible_sleep(0.6)
             if last_state is None:
                 break
         return bool(last_state) and self._row_recorded(last_state, baseline)
@@ -5702,9 +5751,9 @@ class AnswerExecutor:
                         print(f"\t第 {idx + 1} 条: 检测到仍在录音，补一次停止点击")
                 except Exception:
                     pass
-                time.sleep(1.5)
+                interruptible_sleep(1.5)
                 continue
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
         return None
 
     def _answer_role_play(self, q: Question) -> bool:
@@ -5842,7 +5891,7 @@ class AnswerExecutor:
                     if (btn) { btn.click(); }
                 }
             """)
-            time.sleep(0.4)
+            interruptible_sleep(0.4)
         except Exception:
             pass
 
@@ -5874,7 +5923,7 @@ class AnswerExecutor:
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                     inp
                 )
-                time.sleep(0.2)
+                interruptible_sleep(0.2)
                 if self._fill_text_input_verified(inp, ans):
                     success_count += 1
                 else:
@@ -5893,7 +5942,7 @@ class AnswerExecutor:
                 "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                 inp
             )
-            time.sleep(0.2)
+            interruptible_sleep(0.2)
             if not self._fill_text_input_verified(inp, ans):
                 return False
             if q.q_type == QuestionType.MY_VOICE_TEXT:
@@ -5905,7 +5954,7 @@ class AnswerExecutor:
 
     def _fill_text_input_verified(self, inp, ans: str) -> bool:
         WebDriverHelper.simulate_typing(self.driver, inp, ans)
-        time.sleep(0.2)
+        interruptible_sleep(0.2)
         if self._input_value_matches(inp, ans):
             return True
 
@@ -5925,7 +5974,7 @@ class AnswerExecutor:
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('blur', { bubbles: true }));
         """, inp, ans)
-        time.sleep(0.3)
+        interruptible_sleep(0.3)
         return self._input_value_matches(inp, ans)
 
     @staticmethod
@@ -6018,7 +6067,7 @@ class AnswerExecutor:
                 return False
             if status.get('has_item') and not status.get('uploading'):
                 if status.get('toast_success') or status.get('fallback'):
-                    time.sleep(0.4)
+                    interruptible_sleep(0.4)
                     return True
                 now = time.monotonic()
                 if ready_since is None:
@@ -6027,7 +6076,7 @@ class AnswerExecutor:
                     return True
             else:
                 ready_since = None
-            time.sleep(0.4)
+            interruptible_sleep(0.4)
         print(f"\tMy voice 附件上传超时（{timeout}s，has_item={last_status.get('has_item')}，"
               f"uploading={last_status.get('uploading')}），停止提交以避免漏传")
         return False
@@ -6127,7 +6176,7 @@ class AnswerExecutor:
                 continue
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", inp)
-                time.sleep(0.1)
+                interruptible_sleep(0.1)
             except Exception:
                 pass
             if self._fill_text_input_verified(inp, letter):
@@ -6152,7 +6201,7 @@ class AnswerExecutor:
             try:
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({block: 'center'});", inp)
-                time.sleep(0.1)
+                interruptible_sleep(0.1)
             except Exception:
                 pass
             if self._fill_text_input_verified(inp, letter):
@@ -6397,7 +6446,7 @@ class AnswerExecutor:
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                     select_wrapper
                 )
-                time.sleep(0.5)
+                interruptible_sleep(0.5)
 
                 try:
                     trigger = select_wrapper.find_element(
@@ -6409,7 +6458,7 @@ class AnswerExecutor:
                 actions = ActionChains(self.driver)
                 actions.move_to_element(trigger).click().perform()
                 print(f"         点击触发器打开下拉")
-                time.sleep(0.8)
+                interruptible_sleep(0.8)
 
                 dropdown_menu = None
                 for attempt in range(5):
@@ -6426,7 +6475,7 @@ class AnswerExecutor:
                             break
                     except:
                         pass
-                    time.sleep(0.3)
+                    interruptible_sleep(0.3)
 
                 if not dropdown_menu:
                     print(f"         下拉菜单未出现，尝试备选方案")
@@ -6490,7 +6539,7 @@ class AnswerExecutor:
                             continue
 
                 if option_clicked:
-                    time.sleep(0.5)
+                    interruptible_sleep(0.5)
 
                     try:
                         answer_text_elem = select_wrapper.find_element(
@@ -6650,7 +6699,7 @@ class AnswerExecutor:
             result = self.driver.execute_script(js, select_wrapper, value)
             print(f"        JS强制设置结果: {result}")
 
-            time.sleep(0.3)
+            interruptible_sleep(0.3)
             text_elem = select_wrapper.find_element(By.CSS_SELECTOR, '.user-answer-text')
             return result == 'react_onChange_triggered' and value.lower() in text_elem.text.lower()
 
@@ -6793,7 +6842,7 @@ class PublishFrameContext:
                 self.entered = True
                 return True
             except Exception:
-                time.sleep(0.5)
+                interruptible_sleep(0.5)
         return False
 
 
@@ -7431,7 +7480,7 @@ class PublishQuestionParser:
                 return nodes
             if time.time() >= deadline:
                 return nodes
-            time.sleep(0.8)
+            interruptible_sleep(0.8)
 
     def _parse_link_match(self, group, start_number: int) -> List[Question]:
         nodes = self._link_nodes(group)
@@ -7894,7 +7943,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             except Exception as exc:
                 print(f"\t连线匹配：{index + 1}→{letter} 异常 {type(exc).__name__}")
                 continue
-            time.sleep(0.35)
+            interruptible_sleep(0.35)
             now = self._link_edge_count(group)
             if result == 'ok' and now > before:
                 linked += 1
@@ -7920,7 +7969,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         try:
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", inp)
-            time.sleep(0.2)
+            interruptible_sleep(0.2)
         except Exception:
             pass
 
@@ -7933,7 +7982,7 @@ class PublishAnswerExecutor(AnswerExecutor):
     def _type_by_keyboard(self, inp, ans: str) -> bool:
         try:
             self.driver.execute_script("arguments[0].focus();", inp)
-            time.sleep(0.2)
+            interruptible_sleep(0.2)
             inp.send_keys(Keys.CONTROL, 'a')
             inp.send_keys(Keys.DELETE)
             current = inp.get_attribute('value') or ''
@@ -7941,7 +7990,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 inp.send_keys(Keys.BACKSPACE)
             inp.send_keys(ans)
             inp.send_keys(Keys.TAB)
-            time.sleep(0.2)
+            interruptible_sleep(0.2)
             return self._input_value_matches(inp, ans)
         except Exception:
             return False
@@ -8026,7 +8075,7 @@ class PublishAnswerExecutor(AnswerExecutor):
 
         if not WebDriverHelper.safe_click(self.driver, trigger or blank):
             return False
-        time.sleep(0.6)
+        interruptible_sleep(0.6)
         if self._click_dropdown_option(value):
             return True
         for element in optional_inputs:
@@ -8105,7 +8154,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             popup = self._visible_dropdown_popup()
             if popup is not None:
                 return popup
-            time.sleep(0.12)
+            interruptible_sleep(0.12)
         return None
 
     def _dropdown_chevron(self, trigger):
@@ -8142,14 +8191,14 @@ class PublishAnswerExecutor(AnswerExecutor):
                 ActionChains(self.driver).move_to_element(trigger).pause(0.15).click().perform()
             except Exception:
                 WebDriverHelper.safe_click(self.driver, trigger)
-            time.sleep(0.55)
+            interruptible_sleep(0.55)
             if self._visible_dropdown_popup() is None:
                 return
             try:
                 self._js_mouse_click(trigger)
             except Exception:
                 return
-            time.sleep(0.55)
+            interruptible_sleep(0.55)
 
     def _open_dropdown(self, trigger) -> bool:
         self._close_visible_dropdowns()
@@ -8162,7 +8211,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
                     target)
-                time.sleep(0.2)
+                interruptible_sleep(0.2)
             except Exception:
                 pass
             strategies = (
@@ -8269,7 +8318,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             clicked = True
         except Exception:
             clicked = WebDriverHelper.safe_click(self.driver, chosen)
-        time.sleep(0.5)
+        interruptible_sleep(0.5)
         try:
             updated = re.sub(r'\s+', '', PublishPlayer.button_text(trigger)).lower()
         except Exception:
@@ -8280,7 +8329,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 clicked = True
             except Exception:
                 pass
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
             try:
                 updated = re.sub(r'\s+', '', PublishPlayer.button_text(trigger)).lower()
             except Exception:
@@ -8438,7 +8487,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 self.last_rejection = rejection
                 print(f"\t平台拒绝提交：{rejection}")
                 return False
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
         print("\t提交后未检测到已批改状态，请人工确认")
         return False
 
@@ -9276,7 +9325,7 @@ class VideoHandler(ContentHandler):
                             "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                             opt_elem
                         )
-                        time.sleep(0.2)
+                        interruptible_sleep(0.2)
 
                         try:
                             opt_elem.click()
@@ -9296,7 +9345,7 @@ class VideoHandler(ContentHandler):
                         "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                         opt_elem
                     )
-                    time.sleep(0.2)
+                    interruptible_sleep(0.2)
                     opt_elem.click()
                     return True
             except:
@@ -9623,7 +9672,7 @@ def _wait_for_unit_container(driver, course_home_url: str, stop_requested=None,
                         if stop_requested.wait(0.3):
                             raise TimeoutException('单元切换已停止')
                     else:
-                        time.sleep(0.3)
+                        interruptible_sleep(0.3)
                     children = container.find_elements(By.CSS_SELECTOR, ':scope > *')
                     if not isinstance(children, (list, tuple)) or len(children) > 0:
                         break
@@ -9837,6 +9886,7 @@ class AISolver:
         self.driver = driver
         self.config = config
         self.stop_requested = threading.Event()
+        register_stop_signal(self.stop_requested)  # 让 interruptible_sleep 能感知停止
         self.ai_client = OpenAICompatibleClient(self.config)
         self.parser = QuestionParser(driver)
         self.vocab_store = VocabularyStore()
@@ -10554,7 +10604,7 @@ class AISolver:
         except Exception:
             return False
         self._inline_learning_switched = True
-        time.sleep(5)
+        interruptible_sleep(5)
 
         text = ""
         try:
@@ -10573,7 +10623,7 @@ class AISolver:
                 practicing.click()
             except Exception:
                 pass
-            time.sleep(4)
+            interruptible_sleep(4)
 
         if len(text) < 120:
             print("    搭配学习页：Learning 页没抓到内容，跳过")
@@ -10614,7 +10664,7 @@ class AISolver:
                     self.driver, directory_url, self.stop_requested,
                     max_attempts=2, per_attempt_timeout=18
                 )
-                time.sleep(1.0)
+                interruptible_sleep(1.0)
                 tabs = self.driver.find_elements(By.CSS_SELECTOR, '[class*="unitTabScrollContainer"] > *')
                 target = None
                 if unit_label:
@@ -10686,7 +10736,7 @@ class AISolver:
                 """, cand['index'])
                 if not clicked:
                     continue
-                time.sleep(11)
+                interruptible_sleep(11)
                 text = self.driver.execute_script("""
                     const clean = t => (t || '').replace(/\\s+/g, ' ').trim();
                     let text = clean(document.body.innerText);
@@ -12400,7 +12450,7 @@ class AISolver:
                 "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", group)
         except Exception:
             pass
-        time.sleep(0.4)
+        interruptible_sleep(0.4)
 
         if not self._publish_wait_group_rendered(group):
             print("    题目组滚动后仍未渲染，跳过该组（下次再处理）")
@@ -12872,7 +12922,7 @@ class AISolver:
             after_text = self._publish_content_length()
             if after_text and after_text != before_text:
                 return True
-            time.sleep(0.5)
+            interruptible_sleep(0.5)
         print("    点击下一节后内容未变化")
         return False
 
@@ -12899,7 +12949,7 @@ class AISolver:
                 if button is not None:
                     print("    尝试进入下一节（内容层）...")
                     if WebDriverHelper.safe_click(self.driver, button):
-                        time.sleep(2.5)
+                        interruptible_sleep(2.5)
                         return True
 
         PublishPlayer.reset(self.driver)
@@ -12909,7 +12959,7 @@ class AISolver:
         print("    尝试进入下一节（外壳层）...")
         if not WebDriverHelper.safe_click(self.driver, button):
             return False
-        time.sleep(2.5)
+        interruptible_sleep(2.5)
         return True
 
     def _publish_find_next_button(self):
@@ -13277,7 +13327,7 @@ class AISolver:
                 return False
             if not retry or attempt == 2:
                 break
-            time.sleep(retry)
+            interruptible_sleep(retry)
         return True
 
     def _requires_image_context(self, questions) -> bool:
@@ -13320,7 +13370,7 @@ class AISolver:
                 'width': max(1400, int(size[0])), 'height': max(1200, int(size[1])),
                 'deviceScaleFactor': 1, 'mobile': False})
             try:
-                time.sleep(0.5)
+                interruptible_sleep(0.5)
                 self.driver.execute_script("""
                     const btn = [...document.querySelectorAll('button, span, div')].find(e => {
                         if (e.children.length || !e.getClientRects().length) return false;
@@ -13333,7 +13383,7 @@ class AISolver:
                         btn.dispatchEvent(new MouseEvent(ev, opts)));
                     return true;
                 """)
-                time.sleep(0.6)
+                interruptible_sleep(0.6)
                 rect = self.driver.execute_script("""
                     const els = arguments[0];
                     if (!els.length) return null;
@@ -13369,7 +13419,7 @@ class AISolver:
                 return base64.b64decode(shot.get('data') or '')
             finally:
                 self.driver.execute_cdp_cmd('Emulation.clearDeviceMetricsOverride', {})
-                time.sleep(0.3)
+                interruptible_sleep(0.3)
         except Exception as exc:
             print(f"    题目截图失败: {str(exc)[:60]}")
             return None
@@ -13711,6 +13761,7 @@ class UCampusBot:
         self.config = Config.from_json(config_path)
         self.browser = get_spec(self.config.browser)
         self._shutdown_event = threading.Event()
+        register_stop_signal(self._shutdown_event)  # 退出时让所有等待立即收手
         self._background_threads = []
         self.driver = None
         # 长任务模式互斥：刷时长与答题共享同一门闩，避免两边抢顶部 Tab
