@@ -14,6 +14,7 @@
 - **裸 except 收敛**：`environment_checker.py` 3 处改为 `except Exception` / `except OSError`；主文件 72 处按 AST 位置逐点改为 `except Exception`（`Ctrl+C` 与 `SystemExit` 不再被吞掉）。
 - **静默异常留痕**：新增 `unipus_helper/swallow.py`，176 处「只 `pass`/`continue`」的 except 分支插入 `log_swallowed()`；默认 DEBUG 记录位置与异常类型，同一位置第 20 次升级为 WARNING，控制流不变。
 - **异常热点传导**：`drain_alerts()` / `hotspots()` 供上层消费，`log_swallowed()` 跨阈值返回 True；工作台把告警写入界面日志（warn 级）并在 `snapshot.degraded` 暴露，配套 `tests/test_swallow.py`（6 项）已纳入 CI。
+- **答题主流程拆分（第一步）**：从 `_process_current_tab_content` 抽出纯计算的 `_split_record_questions()`（题目分组），函数 455 → 435 行，行为不变；剩余阶段待页面级用例后再拆。
 - **安装程序启动**：`subprocess.Popen` 去掉 `shell=True`，避免路径含空格时的解析问题（台账 D-07）。
 - **配置窗口快捷键**：改用 `sequences: [StandardKey.Save/Close]`，消除 Qt 运行期「只绑定一个组合键」警告（台账 D-06）。
 - **启动脚本示例**：新增 `启动.cmd.example`（`%~dp0` 自适应、解释器与主程序存在性自检），真实 `启动.cmd` 仍只在本机（台账 D-15）。
