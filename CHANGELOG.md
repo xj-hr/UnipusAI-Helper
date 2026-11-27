@@ -16,6 +16,8 @@
 - **异常热点传导**：`drain_alerts()` / `hotspots()` 供上层消费，`log_swallowed()` 跨阈值返回 True；工作台把告警写入界面日志（warn 级）并在 `snapshot.degraded` 暴露，配套 `tests/test_swallow.py`（6 项）已纳入 CI。
 - **页面解析基线**：`tests/test_page_parse_baseline.py` 用无头 Edge 加载页面（合成页 `tests/fixtures/choice_page_min.html` 与真实样本），断言题数/题型/选项；无浏览器环境自动跳过。
 - **测试**：新增 `tests/test_record_answering.py`（5 项），为「录音题逐条作答」段建立行为基线，覆盖成功/部分失败/TTS 关闭/缺 AI 写稿/跟读题。
+- **日志结构化**：548 处 `print()` 改为 `log_print()`（显式级别、保留调用点、同步 GUI 队列），日志文件不再靠关键字猜级别。
+- **版本标签**：首发 `v3.9.18-fork.1`。
 - **超长函数收敛**：`_publish_answer_group` 196 → 114 行（抽出 `_publish_fill_group`），`_inspect_item` 183 → 83 行（抽出四个题型分支）；三处超长函数全部达标。
 - **测试策略**：`.gitignore` 改为测试默认入库，仅忽略 `tests/local_*` / `tests/scratch_*`。
 - **答题主流程拆分（第五步，完成）**：抽出 `_answer_normal_questions()`（官方答案 / 控分 / AI 作答 / 二次修正），主函数 348 → 171 行；配 4 项离线基线（官方命中 / 回落 AI / 无答案 / 部分失败）。

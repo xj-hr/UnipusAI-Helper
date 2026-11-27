@@ -64,6 +64,7 @@
 | 2026-11-27 | D-03 阶段四：抽出 `_answer_record_questions()`，391→348 行 | 见 HEAD |
 | 2026-11-27 | D-03 阶段五：抽出 `_answer_normal_questions()`，348→171 行 | 见 HEAD |
 | 2026-11-27 | D-03 收尾：发布页 196→114、判分 183→83；D-10 测试默认入库 | `812ab12` |
+| 2026-11-27 | D-04 日志结构化、D-12 标签 `v3.9.18-fork.1`、D-18 真实显示验证 | 见 HEAD |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
