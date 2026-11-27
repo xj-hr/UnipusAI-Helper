@@ -234,6 +234,8 @@ class WorkbenchController(CourseCatalogMixin):
         if action not in ("scan", "scan_unit", "run", "quick"):
             return {"ok": False, "error": "无法识别此操作。"}
         with self._lock:
+            if self._operation == "brush":
+                return {"ok": False, "error": "刷时长进行中，答题与刷时长互斥，请先停止刷时长。"}
             if self._closed.is_set() or not self._ready or self._operation:
                 return {"ok": False, "error": "请等待登录或当前操作完成。"}
             if action == "run" and not self._selected:
