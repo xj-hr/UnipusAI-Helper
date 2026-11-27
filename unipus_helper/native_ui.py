@@ -21,6 +21,13 @@ from .record_skip import normalize_skip_record_mode
 from .task_grading import score_text
 from .workbench_controller import WorkbenchController
 
+# 刷时长配置的默认值与键名以模块内 DEFAULTS 为唯一真源，避免面板与运行期漂移
+import time_brushing
+
+#: QML 表单用扁平字段编辑嵌套的 time_brushing，保存时再还原成嵌套结构
+TB_FORM_KEYS = ("tb_enabled", "tb_switch_level", "tb_switch_interval", "tb_range",
+                "tb_range_start", "tb_range_end", "tb_loop")
+
 
 DEFAULT_CONFIG = {
     "username": "",
@@ -86,6 +93,21 @@ def save_config(path, data: dict):
     return True
 
 
+def _tb_form_values(cfg: dict) -> dict:
+    """把嵌套的 time_brushing 摊平成 QML 表单字段；缺省值取 time_brushing.DEFAULTS。"""
+    tb = cfg.get("time_brushing") if isinstance(cfg.get("time_brushing"), dict) else {}
+    defaults = time_brushing.DEFAULTS
+    return {
+        "tb_enabled": bool(tb.get("enabled", defaults["enabled"])),
+        "tb_switch_level": int(tb.get("switchLevel", defaults["switchLevel"])),
+        "tb_switch_interval": float(tb.get("switchInterval", defaults["switchInterval"])),
+        "tb_range": bool(tb.get("range", defaults["range"])),
+        "tb_range_start": int(tb.get("rangeStart", defaults["rangeStart"])),
+        "tb_range_end": int(tb.get("rangeEnd", defaults["rangeEnd"])),
+        "tb_loop": bool(tb.get("loop", defaults["loop"])),
+    }
+
+
 class ConfigEditor(QObject):
     saved = Signal(str, bool)
 
@@ -95,6 +117,7 @@ class ConfigEditor(QObject):
         self.first_run = first_run
         self.completed = False
         self.cfg = load_config(path)
+        self.cfg.update(_tb_form_values(self.cfg))
 
     @Property("QVariantMap", constant=True)
     def values(self):
@@ -108,6 +131,7 @@ class ConfigEditor(QObject):
     def save(self, values):
         data = dict(self.cfg)
         data.update(values)
+        raw_tb = {key: data.pop(key, None) for key in TB_FORM_KEYS}
         for key in DEFAULT_CONFIG:
             if key in ("debug_mode", "screenshot", "answer_api_enabled"):
                 continue
@@ -157,6 +181,39 @@ class ConfigEditor(QObject):
         except ValueError as exc:
             self.saved.emit(str(exc), False)
             return
+        if any(value is not None for value in raw_tb.values()):
+            def _num(value, label, low, high, cast):
+                try:
+                    number = cast(float(str(value).strip()))
+                except (TypeError, ValueError):
+                    raise ValueError(f"{label}必须是 {low}–{high} 之间的数字") from None
+                if not low <= number <= high:
+                    raise ValueError(f"{label}必须是 {low}–{high} 之间的数字")
+                return number
+
+            try:
+                level = _num(raw_tb.get("tb_switch_level"), "刷时长层级步长", 1, 6, int)
+                interval = _num(raw_tb.get("tb_switch_interval"), "刷时长切换间隔", 1, 120, float)
+                range_start = _num(raw_tb.get("tb_range_start"), "刷时长起始节", 1, 99, int)
+                range_end = _num(raw_tb.get("tb_range_end"), "刷时长结束节", 1, 99, int)
+                if range_start > range_end:
+                    raise ValueError("刷时长的起始节不能大于结束节")
+            except ValueError as exc:
+                self.saved.emit(str(exc), False)
+                return
+
+            existing = data.get("time_brushing")
+            tb = dict(existing) if isinstance(existing, dict) else {}
+            tb.update({
+                "enabled": config_bool(raw_tb.get("tb_enabled"), False),
+                "switchLevel": level,
+                "switchInterval": interval,
+                "range": config_bool(raw_tb.get("tb_range"), True),
+                "rangeStart": range_start,
+                "rangeEnd": range_end,
+                "loop": config_bool(raw_tb.get("tb_loop"), True),
+            })
+            data["time_brushing"] = tb
         try:
             save_config(self.path, data)
         except Exception as exc:
