@@ -56,6 +56,7 @@
 | 2026-11-27 | D-01：176 处静默 except 分支加 `log_swallowed` 留痕 | `047bef3` |
 | 2026-11-27 | D-01 传导闭环：告警队列 + `snapshot.degraded`，新增 `test_swallow.py` 入 CI | `f273809` |
 | 2026-11-27 | D-03 第一步：抽出 `_split_record_questions()`，455→435 行 | `9197cdb` |
+| 2026-11-27 | 新增 `scripts/sweep_question_pages.py`：遍历单元采样，命中题目页即停 | `3d340cb` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
@@ -131,6 +132,7 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 00:42 | GUI 主循环 | 离屏 `mainloop(close_after=2500)` | 正常退出；仅 `ConfigEditor.qml` 既有 Shortcut 警告 |
 | 2026-11-27 00:38 | 真机启动 | 离屏直跑 80s | GUI 与登录页正常，约 70s 后 Edge `tab crashed`，**登录未完成** |
 | 2026-11-27 16:2x | 答题真机采样 | 真实登录 → 扫描 → 逐任务解析（提交被拦截） | 2 个任务均为材料页（音频 170.2s / 视频阅读），无题目；样本 `logs/samples/s01~s03*.html`（本地，gitignore） |
+| 2026-11-27 16:5x | 单元遍历采样 | `scripts/sweep_question_pages.py`（侧栏 `pc-slider-menu-unit` 切换 + 拦提交 + 停播放） | 第 4 个单元命中题目页：3 道判断/选择题作答并填充，无 XHR 提交；样本 `logs/samples/sweep15_parse.html`、`sweep16_after.html`（各 1.2 MB） |
 
 ---
 
