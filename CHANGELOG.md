@@ -16,6 +16,7 @@
 - **异常热点传导**：`drain_alerts()` / `hotspots()` 供上层消费，`log_swallowed()` 跨阈值返回 True；工作台把告警写入界面日志（warn 级）并在 `snapshot.degraded` 暴露，配套 `tests/test_swallow.py`（6 项）已纳入 CI。
 - **页面解析基线**：`tests/test_page_parse_baseline.py` 用无头 Edge 加载页面（合成页 `tests/fixtures/choice_page_min.html` 与真实样本），断言题数/题型/选项；无浏览器环境自动跳过。
 - **测试**：新增 `tests/test_record_answering.py`（5 项），为「录音题逐条作答」段建立行为基线，覆盖成功/部分失败/TTS 关闭/缺 AI 写稿/跟读题。
+- **结构治理（第一步）**：12 个无依赖工具函数外迁至 `unipus_helper/submit_hooks.py`、`text_utils.py`、`record_utils.py`，主文件 14,325 → 14,159 行。
 - **日志结构化**：548 处 `print()` 改为 `log_print()`（显式级别、保留调用点、同步 GUI 队列），日志文件不再靠关键字猜级别。
 - **版本标签**：首发 `v3.9.18-fork.1`。
 - **超长函数收敛**：`_publish_answer_group` 196 → 114 行（抽出 `_publish_fill_group`），`_inspect_item` 183 → 83 行（抽出四个题型分支）；三处超长函数全部达标。
