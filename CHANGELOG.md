@@ -16,6 +16,7 @@
 - **异常热点传导**：`drain_alerts()` / `hotspots()` 供上层消费，`log_swallowed()` 跨阈值返回 True；工作台把告警写入界面日志（warn 级）并在 `snapshot.degraded` 暴露，配套 `tests/test_swallow.py`（6 项）已纳入 CI。
 - **页面解析基线**：`tests/test_page_parse_baseline.py` 用无头 Edge 加载页面（合成页 `tests/fixtures/choice_page_min.html` 与真实样本），断言题数/题型/选项；无浏览器环境自动跳过。
 - **测试**：新增 `tests/test_record_answering.py`（5 项），为「录音题逐条作答」段建立行为基线，覆盖成功/部分失败/TTS 关闭/缺 AI 写稿/跟读题。
+- **答题主流程拆分（第四步）**：抽出 `_answer_record_questions()`（录音/跟读逐条作答，60 行），函数 391 → 348 行；抽取前后 5 项行为基线一致。
 - **答题主流程拆分（第三步）**：抽出 `_advance_to_next_question()`（点击下一题 / 等待内容变化 / 页数上限），函数 407 → 391 行；配 6 项单测并接入 CI。
 - **答题主流程拆分（第二步）**：抽出 `_handle_special_questions()`（闪卡/视频/音频/自检/讨论区分发），函数 435 → 407 行；配 7 项离线单测并接入 CI。
 - **答题主流程拆分（第一步）**：从 `_process_current_tab_content` 抽出纯计算的 `_split_record_questions()`（题目分组），函数 455 → 435 行，行为不变；剩余阶段待页面级用例后再拆。

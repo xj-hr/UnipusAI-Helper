@@ -61,6 +61,7 @@
 | 2026-11-27 | D-03 阶段二：抽出 `_handle_special_questions()`，435→407 行 | `895a777` |
 | 2026-11-27 | D-03 阶段三：抽出 `_advance_to_next_question()`，407→391 行 | 见 HEAD |
 | 2026-11-27 | 录音作答段行为基线（5 项），为下一刀拆分做准备 | `c681794` |
+| 2026-11-27 | D-03 阶段四：抽出 `_answer_record_questions()`，391→348 行 | 见 HEAD |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
