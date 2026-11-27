@@ -82,6 +82,9 @@ from unipus_helper.audio_recognizer import AudioTranscriber
 from unipus_helper.browser import DEFAULT_BROWSER, driver_api, get_spec, normalize_browser, quit_driver
 from unipus_helper.environment_checker import EnvironmentChecker
 from unipus_helper.swallow import log_swallowed
+from unipus_helper.submit_hooks import (_install_submit_network_hook, _read_submit_network_state, _read_submit_progress_toast, _describe_submit_timeout_state, _dismiss_known_info_overlays, _format_webdriver_error)
+from unipus_helper.text_utils import (CJK_HINT_PATTERN, extract_cjk_hints, blank_cjk_hints, _similarity, _as_bool, _parse_auth_token)
+from unipus_helper.record_utils import (RECORD_BUTTON_SELECTOR, RECORD_BUTTON_FALLBACKS, record_button_selectors, find_record_buttons)
 from unipus_helper.course_catalog import describe_directory_page_state, select_course_unit
 from unipus_helper.record_skip import (normalize_skip_record_mode,
                                        should_skip_publish_group_fast,
@@ -205,20 +208,6 @@ def setup_logging():
 
     sys.stdout = PrintRedirector(logger)
     return logger
-
-
-def _as_bool(value: Any, default: bool = False) -> bool:
-    """兼容 JSON 布尔与字符串布尔的开关解析。"""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    text = str(value).strip().lower()
-    if text in ("", "none", "null"):
-        return default
-    return text not in ("0", "false", "no", "off", "disabled", "disable")
 
 
 # ---------------------------------------------------------------------------
@@ -363,47 +352,6 @@ class Config:
         )
 
 
-def _parse_auth_token(raw: Any) -> Tuple[Optional[str], Optional[str]]:
-    parsed = raw if isinstance(raw, dict) else None
-    token = "" if parsed is not None else str(raw or "").strip()
-
-    for _ in range(2):
-        if parsed is not None or not token:
-            break
-        try:
-            decoded = json.loads(token)
-        except (TypeError, ValueError):
-            if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\"":
-                token = token[1:-1].strip()
-                continue
-            break
-        if isinstance(decoded, str):
-            token = decoded.strip()
-        else:
-            parsed = decoded
-
-    if isinstance(parsed, dict):
-        token_info = parsed.get("tokenInfo")
-        jwt = parsed.get("jwt") or parsed.get("Authorization")
-        if not jwt and isinstance(token_info, dict):
-            jwt = token_info.get("jwt")
-        if isinstance(jwt, str) and jwt.lower().startswith("bearer "):
-            jwt = jwt[7:].strip()
-        if not isinstance(jwt, str) or jwt.count(".") != 2:
-            return None, None
-
-        legacy_keys = {"rt", "jwt", "rtExpire", "jwtExpire"}
-        legacy = json.dumps(parsed, ensure_ascii=False, separators=(",", ":")) \
-            if legacy_keys.issubset(parsed) else None
-        return legacy, jwt
-
-    if token.lower().startswith("bearer "):
-        token = token[7:].strip()
-    if token.count(".") == 2 and all(token.split(".")):
-        return None, token
-    return None, None
-
-
 class QuestionType(Enum):
     SINGLE_CHOICE = auto()
     MULTIPLE_CHOICE = auto()
@@ -495,7 +443,6 @@ class Question:
         return False
 
 
-CJK_HINT_PATTERN = re.compile(r'[（(]\s*([\u4e00-\u9fa5][^（）()]{0,40}?)\s*[）)]')
 CJK_CHAR_PATTERN = re.compile(r'[\u4e00-\u9fa5]')
 
 EXPRESSION_BANK_PATTERN = re.compile(
@@ -594,28 +541,6 @@ def looks_like_given_prefix(hint: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z][A-Za-z'\-]*", text))
 
 
-def extract_cjk_hints(text: str) -> List[str]:
-    return [hint.strip() for hint in CJK_HINT_PATTERN.findall(text or '') if hint.strip()]
-
-
-def blank_cjk_hints(q: "Question") -> List[str]:
-    inputs = getattr(q, 'inputs', None) or []
-    count = len(inputs)
-    if count <= 0:
-        return []
-
-    aligned = []
-    for blank in (getattr(q, 'banked_blanks', None) or [])[:count]:
-        around = f"{blank.get('right_context') or ''} {blank.get('context') or ''}"
-        found = extract_cjk_hints(around)
-        aligned.append(found[0] if found else '')
-    if len(aligned) == count and all(aligned):
-        return aligned
-
-    hints = extract_cjk_hints(getattr(q, 'text', '') or '')
-    return hints if len(hints) == count else []
-
-
 def _normalize_vocab_key(text: str) -> str:
     value = (text or '').strip()
     value = re.sub(r'[（(].*?[)）]', '', value)
@@ -698,16 +623,6 @@ class VocabularyStore:
     def clear(self):
         self.pairs.clear()
         self.rows.clear()
-
-
-def _similarity(left: str, right: str) -> float:
-    if not left or not right:
-        return 0.0
-    if left == right:
-        return 1.0
-    common = len(set(left) & set(right))
-    base = max(len(set(left)), len(set(right))) or 1
-    return common / base * 0.9
 
 
 class Selectors:
@@ -2129,21 +2044,6 @@ return (function (root, reset) {
 })(arguments[0], arguments[1]);
 """
 
-RECORD_BUTTON_SELECTOR = '.record-icon.button-record'
-
-RECORD_BUTTON_FALLBACKS = (
-    '.button-record',
-    '.oral-record-btn',
-    '.record-btn',
-    '.record-button',
-    '[class*="record"][class*="btn"]',
-)
-
-
-def record_button_selectors() -> Tuple[str, ...]:
-    return (RECORD_BUTTON_SELECTOR,) + RECORD_BUTTON_FALLBACKS
-
-
 SKIP_ASR_TITLE_KEYWORDS = ('skill', '技能')
 
 ANSWER_WIDGET_SELECTORS = (
@@ -2169,31 +2069,6 @@ ANSWER_WIDGET_SELECTORS = (
     'select',
     '[contenteditable="true"]',
 )
-
-
-def find_record_buttons(driver, scope=None) -> List[Any]:
-    root = driver if scope is None else scope
-    for selector in record_button_selectors():
-        try:
-            buttons = root.find_elements(By.CSS_SELECTOR, selector)
-        except Exception:
-            log_swallowed("find_record_buttons:2153"); continue
-        if not isinstance(buttons, (list, tuple)):
-            continue
-        usable = []
-        for button in buttons:
-            try:
-                if not button.is_displayed():
-                    continue
-                size = button.size or {}
-                if (size.get('width') or 0) > 180 or (size.get('height') or 0) > 180:
-                    continue
-            except Exception:
-                log_swallowed("find_record_buttons:2165"); continue
-            usable.append(button)
-        if usable:
-            return usable
-    return []
 
 
 VOCAB_PAIRS_JS = r"""
@@ -9653,28 +9528,6 @@ class AnswerPrefetch:
         return self.answer
 
 
-def _format_webdriver_error(exc: Exception, driver=None) -> str:
-    raw = str(exc or '').split('Stacktrace:')[0].strip()
-    lines = []
-    for line in raw.splitlines():
-        cleaned = re.sub(r'^(?:Message:\s*)+', '', line.strip()).strip()
-        if cleaned:
-            lines.append(cleaned)
-    detail = ' '.join(lines)
-    base = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
-    if driver is None:
-        return base
-    state = describe_directory_page_state(driver)
-    parts = [base]
-    body_head = state.get('body_head') if isinstance(state, dict) else ''
-    url = state.get('url') if isinstance(state, dict) else ''
-    if isinstance(body_head, str) and body_head.strip():
-        parts.append(f"页面={body_head.strip()[:50]}")
-    if isinstance(url, str) and url.strip():
-        parts.append(f"url={url.strip()[:100]}")
-    return ' | '.join(parts)
-
-
 def _wait_for_unit_container(driver, course_home_url: str, stop_requested=None,
                              max_attempts: int = 3, per_attempt_timeout: int = 18):
     last_summary = ''
@@ -9716,195 +9569,6 @@ def _wait_for_unit_container(driver, course_home_url: str, stop_requested=None,
                 log_print(f"    课程目录未加载完成（第 {attempt}/{max_attempts} 次，页面状态: {last_summary}），"
                       f"重新加载目录页...")
     raise TimeoutException(f"课程目录加载超时（已尝试 {max_attempts} 次，页面状态: {last_summary}）")
-
-
-def _dismiss_known_info_overlays(driver) -> bool:
-    if driver is None:
-        return False
-    try:
-        clicked = driver.execute_script("""
-            const vis = el => !!el && !!el.getClientRects().length;
-            let hit = false;
-            for (const sel of ['.system-info-cloud-ok-button', '.know-box .iKnow']) {
-                for (const btn of document.querySelectorAll(sel)) {
-                    if (vis(btn)) {
-                        btn.click();
-                        hit = true;
-                    }
-                }
-            }
-            return hit;
-        """)
-        return clicked is True
-    except Exception:
-        return False
-
-
-def _install_submit_network_hook(driver) -> None:
-    if driver is None:
-        return
-    try:
-        driver.execute_script("""
-            const isTarget = url => /\\/(?:submit|grade\\/content)(?:[/?#]|$)/i.test(String(url || ''));
-            if (!window.__unipusSubmitMonitor) {
-                const state = {
-                    reqCount: 0,
-                    inFlight: 0,
-                    gradingPending: false,
-                    submitSucceeded: false,
-                    lastError: '',
-                    reset() {
-                        this.reqCount = 0;
-                        this.inFlight = 0;
-                        this.gradingPending = false;
-                        this.submitSucceeded = false;
-                        this.lastError = '';
-                    }
-                };
-                const inspectResponse = (url, status, bodyText) => {
-                    const u = String(url || '');
-                    const txt = String(bodyText || '');
-                    if (status >= 400) {
-                        state.lastError = 'HTTP ' + status + ' ' + u.slice(-60);
-                        state.gradingPending = false;
-                        return;
-                    }
-                    if (/icorrectId/i.test(txt) || /\\\\?"GradeStatus\\\\?":\\s*0/.test(txt)) {
-                        state.gradingPending = true;
-                        return;
-                    }
-                    if (/\\\\?"GradeStatus\\\\?":\\s*1/.test(txt)) {
-                        state.gradingPending = false;
-                        return;
-                    }
-                    if (/\\/submit(?:[/?#]|$)/i.test(u) && /"code"\\s*:\\s*0/.test(txt)) {
-                        state.gradingPending = false;
-                        state.submitSucceeded = true;
-                        return;
-                    }
-                    if (/\\/grade\\/content/i.test(u) && /"code"\\s*:\\s*10/.test(txt)) {
-                        state.gradingPending = true;
-                    }
-                };
-                if (typeof window.fetch === 'function') {
-                    const origFetch = window.fetch;
-                    window.fetch = function(...args) {
-                        const raw = args[0];
-                        const url = String((raw && raw.url) || raw || '');
-                        if (!isTarget(url)) return origFetch.apply(this, args);
-                        state.reqCount += 1;
-                        state.inFlight += 1;
-                        return origFetch.apply(this, args).then(res => {
-                            try {
-                                res.clone().text().then(txt => {
-                                    inspectResponse(url, res.status, txt);
-                                }).catch(() => {});
-                            } catch (_) {}
-                            state.inFlight = Math.max(0, state.inFlight - 1);
-                            return res;
-                        }, err => {
-                            state.inFlight = Math.max(0, state.inFlight - 1);
-                            state.lastError = String((err && err.message) || err || 'fetch error').slice(0, 80);
-                            throw err;
-                        });
-                    };
-                }
-                const origOpen = XMLHttpRequest.prototype.open;
-                const origSend = XMLHttpRequest.prototype.send;
-                XMLHttpRequest.prototype.open = function(method, url) {
-                    this.__unipusHookUrl = String(url || '');
-                    return origOpen.apply(this, arguments);
-                };
-                XMLHttpRequest.prototype.send = function() {
-                    const url = this.__unipusHookUrl || '';
-                    if (isTarget(url)) {
-                        state.reqCount += 1;
-                        state.inFlight += 1;
-                        this.addEventListener('loadend', () => {
-                            state.inFlight = Math.max(0, state.inFlight - 1);
-                            inspectResponse(url, this.status, this.responseText);
-                        });
-                    }
-                    return origSend.apply(this, arguments);
-                };
-                window.__unipusSubmitMonitor = state;
-            }
-            window.__unipusSubmitMonitor.reset();
-        """)
-    except Exception:
-        log_swallowed("_install_submit_network_hook:9808")
-
-
-def _read_submit_network_state(driver) -> Optional[Dict[str, Any]]:
-    if driver is None:
-        return None
-    try:
-        res = driver.execute_script("""
-            const m = window.__unipusSubmitMonitor;
-            if (!m) return null;
-            return {
-                reqCount: Number(m.reqCount || 0),
-                inFlight: Number(m.inFlight || 0),
-                gradingPending: !!m.gradingPending,
-                submitSucceeded: !!m.submitSucceeded,
-                lastError: String(m.lastError || '')
-            };
-        """)
-        return res if isinstance(res, dict) else None
-    except Exception:
-        return None
-
-
-def _read_submit_progress_toast(driver) -> str:
-    if driver is None:
-        return ''
-    try:
-        res = driver.execute_script("""
-            const clean = t => (t || '').replace(/\\s+/g, ' ').trim();
-            const vis = el => !!el && !!el.getClientRects().length;
-            return [...document.querySelectorAll('.ant-message-notice, .ant-spin-text')]
-                .filter(vis)
-                .map(el => clean(el.innerText))
-                .filter(Boolean)
-                .join(' | ');
-        """)
-        return res if isinstance(res, str) else ''
-    except Exception:
-        return ''
-
-
-def _describe_submit_timeout_state(driver, net_state: Optional[Dict[str, Any]] = None) -> str:
-    parts = []
-    if isinstance(net_state, dict):
-        parts.append(
-            f"xhr(req={net_state.get('reqCount', 0)}, inFlight={net_state.get('inFlight', 0)}, "
-            f"grading={net_state.get('gradingPending', False)})"
-        )
-        if net_state.get('lastError'):
-            parts.append(f"err={net_state['lastError']}")
-    if driver is None:
-        return ' | '.join(parts)
-    try:
-        dom = driver.execute_script("""
-            const clean = t => (t || '').replace(/\\s+/g, ' ').trim();
-            const vis = el => !!el && !!el.getClientRects().length;
-            const btns = [...document.querySelectorAll('button, a.btn, .btn')].filter(vis).slice(0, 6).map(b =>
-                clean(b.innerText).slice(0, 20) + '[' + String(b.className || '').slice(0, 30) + ']'
-            );
-            const modals = [...document.querySelectorAll('[role="dialog"], .ant-modal, .ant-message-notice')]
-                .filter(vis).slice(0, 2).map(m => clean(m.innerText).slice(0, 60));
-            return {btns, modals};
-        """)
-        if isinstance(dom, dict):
-            btns = dom.get('btns') or []
-            modals = dom.get('modals') or []
-            if btns:
-                parts.append(f"可见按钮={btns}")
-            if modals:
-                parts.append(f"可见弹窗={modals}")
-    except Exception:
-        log_swallowed("_describe_submit_timeout_state:9879")
-    return ' | '.join(parts)
 
 
 class AISolver:
