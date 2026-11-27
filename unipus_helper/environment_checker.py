@@ -8,6 +8,7 @@ import urllib.request
 from typing import Optional, List
 
 from .browser import BrowserSpec, DEFAULT_BROWSER, get_spec
+from .swallow import log_swallowed
 
 
 class EnvironmentChecker:
@@ -245,7 +246,7 @@ class EnvironmentChecker:
             try:
                 os.remove(zip_path)
             except OSError:
-                pass
+                log_swallowed("EnvironmentChecker.auto_install_ffmpeg:248")
 
             print("\n  请重新运行本程序以加载新的环境变量")
             input("按回车键退出...")

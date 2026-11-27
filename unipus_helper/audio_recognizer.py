@@ -6,6 +6,8 @@ import urllib.error
 import urllib.request
 from typing import Dict, Optional
 
+from .swallow import log_swallowed
+
 
 class AudioTranscriber:
 
@@ -86,7 +88,7 @@ class AudioTranscriber:
                 try:
                     os.unlink(audio_path)
                 except OSError:
-                    pass
+                    log_swallowed("AudioTranscriber.transcribe:89")
 
     def _transcribe_local(self, audio_path: str, language: str) -> Optional[str]:
         if self.local_model is None:

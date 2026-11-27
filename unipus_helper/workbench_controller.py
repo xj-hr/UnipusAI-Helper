@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .swallow import log_swallowed
+
 import copy
 import json
 import queue
@@ -162,7 +164,7 @@ class WorkbenchController(CourseCatalogMixin):
             try:
                 message = str(self.gui_log_queue.get(timeout=.5)).strip()
             except queue.Empty:
-                continue
+                log_swallowed("WorkbenchController._collect_logs:165"); continue
             if not message or set(message) <= {"=", "*", "-", " "}:
                 continue
             self._add_log(message, log_level(message))
@@ -466,7 +468,7 @@ class WorkbenchController(CourseCatalogMixin):
                 try:
                     close_browser_driver(driver)
                 except Exception:
-                    pass
+                    log_swallowed("WorkbenchController.close.quit_driver:469")
             worker = threading.Thread(target=quit_driver, daemon=True, name="browser-cleanup")
             worker.start()
             worker.join(timeout=6)
@@ -482,4 +484,4 @@ class WorkbenchController(CourseCatalogMixin):
                         else:
                             process.terminate()
                     except (OSError, subprocess.TimeoutExpired):
-                        pass
+                        log_swallowed("WorkbenchController.close:485")

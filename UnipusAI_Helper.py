@@ -9,7 +9,7 @@ except ImportError:
             try:
                 print('\a', end='', flush=True)
             except Exception:
-                pass
+                log_swallowed("_MockWinsound.MessageBeep:12")
     winsound = _MockWinsound()
 import shutil
 import subprocess
@@ -58,13 +58,13 @@ def ensure_writable_temp_dir() -> str:
                 handle.write('ok')
             os.remove(probe)
         except Exception:
-            continue
+            log_swallowed("ensure_writable_temp_dir:61"); continue
         os.environ['TEMP'] = candidate
         os.environ['TMP'] = candidate
         try:
             tempfile.tempdir = candidate
         except Exception:
-            pass
+            log_swallowed("ensure_writable_temp_dir:67")
         if original_temp and os.path.abspath(original_temp) != os.path.abspath(candidate):
             print(f" 系统临时目录不可写，已切换到: {candidate}")
         return candidate
@@ -81,6 +81,7 @@ from unipus_helper.answer_api import OfficialAnswerProvider
 from unipus_helper.audio_recognizer import AudioTranscriber
 from unipus_helper.browser import DEFAULT_BROWSER, driver_api, get_spec, normalize_browser, quit_driver
 from unipus_helper.environment_checker import EnvironmentChecker
+from unipus_helper.swallow import log_swallowed
 from unipus_helper.course_catalog import describe_directory_page_state, select_course_unit
 from unipus_helper.record_skip import (normalize_skip_record_mode,
                                        should_skip_publish_group_fast,
@@ -118,9 +119,9 @@ def setup_logging():
                 try:
                     os.remove(old_file)
                 except Exception:
-                    pass
+                    log_swallowed("setup_logging.clean_all_logs:121")
         except Exception:
-            pass
+            log_swallowed("setup_logging.clean_all_logs:123")
 
     logger = logging.getLogger('UCampusBot')
     if logger.handlers:
@@ -217,7 +218,7 @@ def stop_requested() -> bool:
             if event.is_set():
                 return True
         except Exception:  # noqa: BLE001 - 已销毁的事件按「未置位」处理
-            continue
+            log_swallowed("stop_requested:220"); continue
     return False
 
 
@@ -734,7 +735,7 @@ class WebDriverHelper:
                 if element.is_displayed():
                     return element
             except (TimeoutException, NoSuchElementException):
-                continue
+                log_swallowed("WebDriverHelper.safe_find_element:737"); continue
         return None
 
     @staticmethod
@@ -1018,12 +1019,12 @@ class OpenAICompatibleClient:
                             print(f"   响应头: {dict(e.response.headers)}")
                             print(f"   响应体: {e.response.text[:1000]}")
                         except Exception:
-                            pass
+                            log_swallowed("OpenAICompatibleClient.ask:1021")
                     if hasattr(e, 'body'):
                         try:
                             print(f"   错误body: {e.body}")
                         except Exception:
-                            pass
+                            log_swallowed("OpenAICompatibleClient.ask:1026")
                     if hasattr(e, 'status_code'):
                         print(f"   status_code: {e.status_code}")
                     print(f"   完整堆栈:")
@@ -1116,7 +1117,7 @@ class QuestionParser:
                 )
                 direction_text = direction_elem.text.lower()
             except Exception:
-                pass
+                log_swallowed("QuestionParser._find_reading_question_containers:1119")
 
             is_multi_question_type = any(kw in direction_text for kw in [
                 'answer', 'question', 'according to',
@@ -1151,7 +1152,7 @@ class QuestionParser:
                             if reply.is_displayed() and reply.find_elements(By.CSS_SELECTOR, '.question-inputbox'):
                                 valid_replies.append(reply)
                         except Exception:
-                            continue
+                            log_swallowed("QuestionParser._find_reading_question_containers:1154"); continue
 
                     if len(valid_replies) >= 2:
                         return valid_replies
@@ -1170,7 +1171,7 @@ class QuestionParser:
             )
             return direction_elem.text.strip()
         except Exception:
-            pass
+            log_swallowed("QuestionParser._extract_directions_from_page:1173")
 
         try:
             direction_elem = self.driver.find_element(
@@ -1179,7 +1180,7 @@ class QuestionParser:
             )
             return direction_elem.text.strip()
         except Exception:
-            pass
+            log_swallowed("QuestionParser._extract_directions_from_page:1182")
 
         try:
             direction_elem = self.driver.find_element(
@@ -1188,7 +1189,7 @@ class QuestionParser:
             )
             return direction_elem.text.strip()
         except Exception:
-            pass
+            log_swallowed("QuestionParser._extract_directions_from_page:1191")
 
         return ""
 
@@ -1215,7 +1216,7 @@ class QuestionParser:
                     if topic:
                         break
                 except Exception:
-                    continue
+                    log_swallowed("QuestionParser._parse_all_once:1218"); continue
             return [Question(number=1, text=topic or "讨论区发帖",
                              q_type=QuestionType.DISCUSSION_BOARD, element=element)], ""
 
@@ -1346,7 +1347,7 @@ class QuestionParser:
                 if has_table and has_icon and container.is_displayed():
                     checklist_containers.append(container)
             except Exception:
-                continue
+                log_swallowed("QuestionParser._find_containers:1349"); continue
         if checklist_containers:
             print(f"     找到 {len(checklist_containers)} 个自评清单容器")
             return checklist_containers
@@ -1362,7 +1363,7 @@ class QuestionParser:
                 if reply.is_displayed() and reply.find_elements(By.CSS_SELECTOR, '.sequence-view, .sortable-list-wrapper'):
                     sequence_containers.append(reply)
             except Exception:
-                continue
+                log_swallowed("QuestionParser._find_containers:1365"); continue
         if sequence_containers:
             print(f"     找到 {len(sequence_containers)} 道排序题")
             return sequence_containers
@@ -1381,7 +1382,7 @@ class QuestionParser:
                     if reply not in reply_containers:
                         reply_containers.append(reply)
                 except Exception:
-                    pass
+                    log_swallowed("QuestionParser._find_containers:1384")
 
             if reply_containers:
                 print(f"     找到 {len(reply_containers)} 道独立选择题")
@@ -1410,7 +1411,7 @@ class QuestionParser:
                 if has_table and has_got_it and container.is_displayed():
                     self_check_containers.append(container)
             except Exception:
-                continue
+                log_swallowed("QuestionParser._find_containers:1413"); continue
 
         if self_check_containers:
             print(f"     找到 {len(self_check_containers)} 个Self-check词汇勾选容器")
@@ -1441,7 +1442,7 @@ class QuestionParser:
                 if has_content and c.is_displayed():
                     valid_containers.append(c)
             except Exception:
-                continue
+                log_swallowed("QuestionParser._find_containers:1444"); continue
 
         if valid_containers:
             print(f"     找到 {len(valid_containers)} 个有效题目容器（layout-container）")
@@ -1463,7 +1464,7 @@ class QuestionParser:
                 if reply.find_elements(By.CSS_SELECTOR, 'textarea, .fe-scoop input'):
                     reply_fallback.append(reply)
             except Exception:
-                continue
+                log_swallowed("QuestionParser._find_containers:1466"); continue
         if reply_fallback:
             print(f"     兜底找到 {len(reply_fallback)} 个作答容器")
             return reply_fallback
@@ -1488,7 +1489,7 @@ class QuestionParser:
                     row = button.find_element(By.XPATH, xpath)
                     break
                 except Exception:
-                    continue
+                    log_swallowed("QuestionParser._find_record_containers:1491"); continue
             if row is None:
                 try:
                     row = button.find_element(
@@ -1610,7 +1611,7 @@ class SelfCheckStrategy(QuestionParserStrategy):
             direction_elem = driver.find_element(By.CSS_SELECTOR, '.layout-direction-container, .abs-direction')
             direction_text = direction_elem.text.lower()
         except Exception:
-            pass
+            log_swallowed("SelfCheckStrategy.can_parse:1613")
 
         has_table = bool(container.find_elements(By.CSS_SELECTOR, '.ticket-view table, .ant-table-tbody'))
         has_got_it = 'got it' in container.text.lower()
@@ -1628,7 +1629,7 @@ class SelfCheckStrategy(QuestionParserStrategy):
                 if word and got_it_icon:
                     rows.append({'word': word, 'element': got_it_icon})
             except Exception:
-                continue
+                log_swallowed("SelfCheckStrategy.parse:1631"); continue
 
         return Question(
             number=question_number,
@@ -1663,7 +1664,7 @@ class SortingStrategy(QuestionParserStrategy):
                     if len(spans) > 1:
                         text = spans[1].text.strip()
             except Exception:
-                pass
+                log_swallowed("SortingStrategy.parse:1666")
 
             if not letter:
                 match = re.match(r'^([A-Z])[\s.、)]*(.+)$', full_text, re.DOTALL)
@@ -1824,7 +1825,7 @@ class BankedClozeStrategy(QuestionParserStrategy):
                 input_box = scoop.find_element(By.CSS_SELECTOR, 'input')
                 inputs.append(input_box)
             except Exception:
-                pass
+                log_swallowed("BankedClozeStrategy.parse:1827")
 
             banked_blanks.append({
                 'index': i,
@@ -1978,7 +1979,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                     if elem.is_displayed():
                         return elem
             except Exception:
-                continue
+                log_swallowed("MyVoiceTextStrategy._find_textarea:1981"); continue
         return None
 
     def _collect_page_text(self, container, driver) -> str:
@@ -1989,7 +1990,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 if text:
                     parts.append(text)
             except Exception:
-                pass
+                log_swallowed("MyVoiceTextStrategy._collect_page_text:1992")
         return "\n".join(parts)
 
     def _extract_material_text(self, container, driver) -> str:
@@ -2005,7 +2006,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 if text:
                     return text
             except Exception:
-                continue
+                log_swallowed("MyVoiceTextStrategy._extract_material_text:2008"); continue
 
         for selector in selectors:
             try:
@@ -2014,7 +2015,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 if text:
                     return text
             except Exception:
-                continue
+                log_swallowed("MyVoiceTextStrategy._extract_material_text:2017"); continue
         return ""
 
 
@@ -2150,7 +2151,7 @@ def find_record_buttons(driver, scope=None) -> List[Any]:
         try:
             buttons = root.find_elements(By.CSS_SELECTOR, selector)
         except Exception:
-            continue
+            log_swallowed("find_record_buttons:2153"); continue
         if not isinstance(buttons, (list, tuple)):
             continue
         usable = []
@@ -2162,7 +2163,7 @@ def find_record_buttons(driver, scope=None) -> List[Any]:
                 if (size.get('width') or 0) > 180 or (size.get('height') or 0) > 180:
                     continue
             except Exception:
-                continue
+                log_swallowed("find_record_buttons:2165"); continue
             usable.append(button)
         if usable:
             return usable
@@ -2629,7 +2630,7 @@ class TTSEngine:
                 if os.path.exists(path):
                     os.remove(path)
             except OSError:
-                pass
+                log_swallowed("TTSEngine._synth_edge:2632")
 
     @staticmethod
     def _edge_save(edge_tts, text: str, voice: str, path: str, kwargs: Dict[str, Any]):
@@ -2647,7 +2648,7 @@ class TTSEngine:
             try:
                 return raw.decode(encoding)
             except Exception:
-                continue
+                log_swallowed("TTSEngine._decode_console:2650"); continue
         return raw.decode('utf-8', 'ignore')
 
     def _synth_sapi(self, text: str) -> Tuple[str, bytes]:
@@ -2695,7 +2696,7 @@ class TTSEngine:
                     if os.path.exists(path):
                         os.remove(path)
                 except OSError:
-                    pass
+                    log_swallowed("TTSEngine._synth_sapi:2698")
 
 
 SAPI_TTS_SCRIPT = r"""
@@ -2824,7 +2825,7 @@ class RecordStrategy(QuestionParserStrategy):
             if container.find_elements(By.CSS_SELECTOR, RECORD_BUTTON_SELECTOR):
                 return True
         except Exception:
-            pass
+            log_swallowed("RecordStrategy.can_parse:2827")
         return bool(find_record_buttons(driver, container))
 
     def parse(self, container, driver, question_number: int, directions: str = "") -> Optional[Question]:
@@ -2905,14 +2906,14 @@ class RecordStrategy(QuestionParserStrategy):
             try:
                 scopes.append(container.find_element(By.XPATH, xpath))
             except Exception:
-                continue
+                log_swallowed("RecordStrategy._question_text:2908"); continue
 
         for scope in scopes:
             for selector in prompt_selectors:
                 try:
                     nodes = scope.find_elements(By.CSS_SELECTOR, selector)
                 except Exception:
-                    continue
+                    log_swallowed("RecordStrategy._question_text:2915"); continue
                 for node in nodes:
                     value = (node.text or '').strip()
                     if value and value not in candidates:
@@ -3029,7 +3030,7 @@ class TextInputStrategy(QuestionParserStrategy):
                 material = container.find_element(By.CSS_SELECTOR, '.layout-material-container')
                 material_text = material.text.lower()
             except Exception:
-                pass
+                log_swallowed("TextInputStrategy.can_parse:3032")
 
             if any(kw in material_text for kw in self.WRITING_KEYWORDS):
                 has_scoop = container.find_elements(By.CSS_SELECTOR, '.fe-scoop, .question-common-abs-scoop')
@@ -3086,7 +3087,7 @@ class TextInputStrategy(QuestionParserStrategy):
                                                          ".layout-direction-container .component-htmlview")
                     effective_directions = direction_elem.text.strip()
                 except Exception:
-                    pass
+                    log_swallowed("TextInputStrategy.parse:3089")
 
             container_class = container.get_attribute('class') or ''
             is_single_reply = 'question-common-abs-reply' in container_class
@@ -3125,7 +3126,7 @@ class TextInputStrategy(QuestionParserStrategy):
                             'question_text': placeholder
                         })
                     except Exception as e:
-                        continue
+                        log_swallowed("TextInputStrategy.parse:3128"); continue
             else:
                 if is_single_reply:
                     input_boxes = container.find_elements(By.CSS_SELECTOR, '.question-inputbox')
@@ -3147,7 +3148,7 @@ class TextInputStrategy(QuestionParserStrategy):
                             'question_text': question_text
                         })
                     except Exception as e:
-                        continue
+                        log_swallowed("TextInputStrategy.parse:3150"); continue
 
             if not items:
                 return None
@@ -3212,15 +3213,15 @@ class TextInputStrategy(QuestionParserStrategy):
                     material = container.find_element(By.CSS_SELECTOR, '.layout-material-container')
                     material_text = material.text.strip()
                 except Exception:
-                    pass
+                    log_swallowed("TextInputStrategy._extract_material_text:3215")
             if not material_text and driver:
                 try:
                     material = driver.find_element(By.CSS_SELECTOR, '.layout-material-container')
                     material_text = material.text.strip()
                 except Exception:
-                    pass
+                    log_swallowed("TextInputStrategy._extract_material_text:3221")
         except Exception:
-            pass
+            log_swallowed("TextInputStrategy._extract_material_text:3223")
         return material_text
 
 
@@ -3296,7 +3297,7 @@ class ListeningFillInStrategy(QuestionParserStrategy):
                 if text:
                     return text
             except Exception:
-                continue
+                log_swallowed("ListeningFillInStrategy._extract_blank_sentence:3299"); continue
         return ""
 
     @staticmethod
@@ -3392,7 +3393,7 @@ class FillInStrategy(QuestionParserStrategy):
                 if inp.getClientRects():
                     visible_inputs.append(inp)
             except Exception:
-                continue
+                log_swallowed("FillInStrategy.parse:3395"); continue
         if visible_inputs:
             inputs = visible_inputs
 
@@ -3601,7 +3602,7 @@ class DropdownSelectStrategy(QuestionParserStrategy):
                     if label and label != CLOZE_DROPDOWN_PLACEHOLDER and label not in options:
                         options.append(label)
                 except Exception:
-                    continue
+                    log_swallowed("DropdownSelectStrategy._peek_dropdown_options:3604"); continue
             ActionChains(driver).send_keys(Keys.ESCAPE).perform()
             return options
         except Exception:
@@ -3656,7 +3657,7 @@ class DropdownSelectStrategy(QuestionParserStrategy):
                         if text and text not in ['', CLOZE_DROPDOWN_PLACEHOLDER]:
                             options.append(text)
                 except Exception:
-                    pass
+                    log_swallowed("DropdownSelectStrategy.parse:3659")
 
             blanks.append({
                 'index': i,
@@ -3789,7 +3790,7 @@ class MatchingStrategy(QuestionParserStrategy):
                 if text:
                     return text
             except Exception:
-                continue
+                log_swallowed("MatchingStrategy._page_direction:3792"); continue
         return ""
 
     def can_parse(self, container, driver) -> bool:
@@ -3875,7 +3876,7 @@ class MatchingStrategy(QuestionParserStrategy):
         try:
             ordered.sort(key=key)
         except Exception:
-            pass
+            log_swallowed("MatchingStrategy._sort_inputs:3878")
         return ordered
 
     @staticmethod
@@ -3887,7 +3888,7 @@ class MatchingStrategy(QuestionParserStrategy):
                 if text:
                     return text
             except Exception:
-                continue
+                log_swallowed("MatchingStrategy._statement_for:3890"); continue
         return ""
 
     @staticmethod
@@ -4077,7 +4078,7 @@ class MatchingStrategy(QuestionParserStrategy):
             try:
                 text = (cell.text or '').strip()
             except Exception:
-                continue
+                log_swallowed("MatchingStrategy._option_letters:4080"); continue
             if re.fullmatch(r'[A-H]', text) and text not in letters:
                 letters.append(text)
         if letters:
@@ -4114,11 +4115,11 @@ class ChecklistStrategy(QuestionParserStrategy):
                 try:
                     text = row.find_element(By.CSS_SELECTOR, '.content-text').text.strip()
                 except Exception:
-                    continue
+                    log_swallowed("ChecklistStrategy.parse:4117"); continue
                 try:
                     icon = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2) .anticon')
                 except Exception:
-                    continue
+                    log_swallowed("ChecklistStrategy.parse:4121"); continue
                 if text:
                     rows.append({'word': text, 'element': icon})
         except Exception:
@@ -4195,7 +4196,7 @@ class GenericReplyStrategy(QuestionParserStrategy):
                     if area.is_displayed():
                         found.append(area)
                 except Exception:
-                    continue
+                    log_swallowed("GenericReplyStrategy._textareas:4198"); continue
         except Exception:
             return []
         return found
@@ -4218,7 +4219,7 @@ class GenericReplyStrategy(QuestionParserStrategy):
                 if len(text) > 20:
                     return text
             except Exception:
-                continue
+                log_swallowed("GenericReplyStrategy._material_text:4221"); continue
         try:
             raw = (container.text or '').strip()[:2000]
         except Exception:
@@ -4565,7 +4566,7 @@ class PromptBuilder:
                     has_option_images = True
                     break
             except Exception:
-                continue
+                log_swallowed("PromptBuilder._build_multiple_choice:4568"); continue
         for opt in q.options:
             lines.append(f"   {opt.letter}. {opt.text}")
         if has_option_images:
@@ -4861,7 +4862,7 @@ class AnswerExecutor:
                 print(f"\t通过索引匹配选项 {opt.letter}: {opt.text[:30]}...")
                 return WebDriverHelper.safe_click(self.driver, opt.element)
         except Exception:
-            pass
+            log_swallowed("AnswerExecutor._fill_single_choice:4864")
 
         return False
 
@@ -4938,7 +4939,7 @@ class AnswerExecutor:
                 if spans:
                     letter = spans[0].text.strip().replace('.', '').replace(')', '').upper()
             except Exception:
-                pass
+                log_swallowed("AnswerExecutor._get_sorting_items:4941")
             if not letter:
                 match = re.match(r'^([A-Z])[\s.、)]*', text)
                 if match:
@@ -5403,7 +5404,7 @@ class AnswerExecutor:
                             self.driver.execute_script('arguments[0].click()', btn)
                             print("\t朗读录音结束，点击停止")
                         except Exception:
-                            pass
+                            log_swallowed("AnswerExecutor._wait_oral_aloud:5406")
             interruptible_sleep(2)
         return None
 
@@ -5470,7 +5471,7 @@ class AnswerExecutor:
                         and self._vocab_record_buttons(q)):
                     return info
             except Exception:
-                pass
+                log_swallowed("AnswerExecutor._wait_vocab_card:5473")
             if self.stop_requested.wait(0.25):
                 return None
         return None
@@ -5498,7 +5499,7 @@ class AnswerExecutor:
                 if uploaded and not info.get('recording'):
                     return True
             except Exception:
-                pass
+                log_swallowed("AnswerExecutor._wait_vocab_upload:5501")
             if self.stop_requested.wait(0.25):
                 return False
         return False
@@ -5539,7 +5540,7 @@ class AnswerExecutor:
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", button)
         except Exception:
-            pass
+            log_swallowed("AnswerExecutor._record_vocab_card:5542")
         if self.stop_requested.wait(0.2):
             return False
         if not WebDriverHelper.safe_click(self.driver, button):
@@ -5750,7 +5751,7 @@ class AnswerExecutor:
                         WebDriverHelper.safe_click(self.driver, button)
                         print(f"\t第 {idx + 1} 条: 检测到仍在录音，补一次停止点击")
                 except Exception:
-                    pass
+                    log_swallowed("AnswerExecutor._wait_record_finish:5753")
                 interruptible_sleep(1.5)
                 continue
             interruptible_sleep(0.5)
@@ -5893,7 +5894,7 @@ class AnswerExecutor:
             """)
             interruptible_sleep(0.4)
         except Exception:
-            pass
+            log_swallowed("AnswerExecutor._dismiss_record_popup:5896")
 
     def _fill_text(self, q: Question, answer: str) -> bool:
         if not q.inputs:
@@ -6046,7 +6047,7 @@ class AnswerExecutor:
             if isinstance(res, dict):
                 return res
         except Exception:
-            pass
+            log_swallowed("AnswerExecutor._my_voice_upload_status:6049")
         return {
             'has_item': self._my_voice_has_uploaded_file(q),
             'uploading': False,
@@ -6178,7 +6179,7 @@ class AnswerExecutor:
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", inp)
                 interruptible_sleep(0.1)
             except Exception:
-                pass
+                log_swallowed("AnswerExecutor._fill_matching:6181")
             if self._fill_text_input_verified(inp, letter):
                 success += 1
             else:
@@ -6203,7 +6204,7 @@ class AnswerExecutor:
                     "arguments[0].scrollIntoView({block: 'center'});", inp)
                 interruptible_sleep(0.1)
             except Exception:
-                pass
+                log_swallowed("AnswerExecutor._fill_paragraph_match:6206")
             if self._fill_text_input_verified(inp, letter):
                 success += 1
             else:
@@ -6286,7 +6287,7 @@ class AnswerExecutor:
                     if btn.is_displayed() and btn.is_enabled() and self._is_submit_button(btn):
                         return WebDriverHelper.safe_click(self.driver, btn)
             except Exception:
-                continue
+                log_swallowed("AnswerExecutor.submit:6289"); continue
 
         for selector in Selectors.SUBMIT_BUTTON:
             try:
@@ -6295,7 +6296,7 @@ class AnswerExecutor:
                     if btn.is_displayed() and btn.is_enabled() and self._is_submit_button(btn):
                         return WebDriverHelper.safe_click(self.driver, btn)
             except Exception:
-                continue
+                log_swallowed("AnswerExecutor.submit:6298"); continue
 
         try:
             fallback = self.driver.execute_script("""
@@ -6314,7 +6315,7 @@ class AnswerExecutor:
                 print("\t通过文本兜底点击提交按钮")
                 return WebDriverHelper.safe_click(self.driver, fallback)
         except Exception:
-            pass
+            log_swallowed("AnswerExecutor.submit:6317")
 
         return False
 
@@ -6474,7 +6475,7 @@ class AnswerExecutor:
                         if dropdown_menu.is_displayed():
                             break
                     except Exception:
-                        pass
+                        log_swallowed("AnswerExecutor._fill_dropdown_select:6477")
                     interruptible_sleep(0.3)
 
                 if not dropdown_menu:
@@ -6506,7 +6507,7 @@ class AnswerExecutor:
                         if option_clicked:
                             break
                     except Exception as e:
-                        continue
+                        log_swallowed("AnswerExecutor._fill_dropdown_select:6509"); continue
 
                 if not option_clicked:
                     try:
@@ -6524,7 +6525,7 @@ class AnswerExecutor:
                                 option_clicked = True
                                 break
                     except Exception:
-                        pass
+                        log_swallowed("AnswerExecutor._fill_dropdown_select:6527")
 
                 if not option_clicked:
                     for xpath in option_selectors[3:]:
@@ -6536,7 +6537,7 @@ class AnswerExecutor:
                                 option_clicked = True
                                 break
                         except Exception:
-                            continue
+                            log_swallowed("AnswerExecutor._fill_dropdown_select:6539"); continue
 
                 if option_clicked:
                     interruptible_sleep(0.5)
@@ -6757,7 +6758,7 @@ class PublishPlayer:
         try:
             driver.switch_to.default_content()
         except Exception:
-            pass
+            log_swallowed("PublishPlayer.reset:6760")
 
     @classmethod
     def find_frame(cls, driver):
@@ -6766,7 +6767,7 @@ class PublishPlayer:
             try:
                 frames = driver.find_elements(By.CSS_SELECTOR, css)
             except Exception:
-                continue
+                log_swallowed("PublishPlayer.find_frame:6769"); continue
             if frames:
                 return frames[0]
         return None
@@ -7041,7 +7042,7 @@ class PublishQuestionParser:
                 if button.is_displayed():
                     return button
             except Exception:
-                continue
+                log_swallowed("PublishQuestionParser.submit_button:7044"); continue
         return buttons[0] if buttons else None
 
     def group_submitted(self, group) -> bool:
@@ -7059,7 +7060,7 @@ class PublishQuestionParser:
             try:
                 question_ids.append(node.get_attribute('data-question-id') or '')
             except Exception:
-                continue
+                log_swallowed("PublishQuestionParser.group_key:7062"); continue
         if not group_id and not question_ids:
             return f'{group_type}:{self.element_text(group, 120)}'
         return f'{group_type}:{group_id}:{",".join(question_ids)}'
@@ -7096,7 +7097,7 @@ class PublishQuestionParser:
                 if content.find_elements(By.XPATH, 'ancestor::*[contains(@class, "q-answer-and-analysis")]'):
                     continue
             except Exception:
-                pass
+                log_swallowed("PublishQuestionParser._stem_text:7099")
             if skip_class:
                 try:
                     ancestor = content.find_elements(
@@ -7104,7 +7105,7 @@ class PublishQuestionParser:
                     if ancestor:
                         continue
                 except Exception:
-                    pass
+                    log_swallowed("PublishQuestionParser._stem_text:7107")
             text = self.element_text(content, limit=None)
             if text and text not in parts:
                 parts.append(text)
@@ -7212,7 +7213,7 @@ class PublishQuestionParser:
                         By.XPATH, 'ancestor::*[@data-question-id][not(@data-option-value)]'):
                     continue
             except Exception:
-                continue
+                log_swallowed("PublishQuestionParser._question_nodes:7215"); continue
             nodes.append(node)
         return nodes
 
@@ -7360,7 +7361,7 @@ class PublishQuestionParser:
             try:
                 letter_element = row.find_element(By.CSS_SELECTOR, '[class*="strongItem"]')
             except Exception:
-                continue
+                log_swallowed("PublishQuestionParser._choice_options:7363"); continue
             letter = self.element_text(letter_element, 8).strip().strip('.、):：')
             option_text = ''
             for content in row.find_elements(By.CSS_SELECTOR, '.editor-content'):
@@ -7537,7 +7538,7 @@ class PublishQuestionParser:
             try:
                 inputs.extend(blank.find_elements(By.CSS_SELECTOR, 'input'))
             except Exception:
-                continue
+                log_swallowed("PublishQuestionParser._blank_inputs:7540"); continue
         if inputs and len(inputs) >= len(blanks):
             return inputs
         try:
@@ -7631,7 +7632,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             try:
                 self.driver.execute_script('arguments[0].pause();', media)
             except Exception:
-                pass
+                log_swallowed("PublishAnswerExecutor.play_material:7634")
         return False
 
     def _answer_record(self, q: Question, answer: str = "") -> bool:
@@ -7703,7 +7704,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 try:
                     self._click_publish_record(q)
                 except Exception:
-                    pass
+                    log_swallowed("PublishAnswerExecutor._answer_record:7706")
         return False
 
     def _click_publish_record(self, q: Question) -> bool:
@@ -7888,7 +7889,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         try:
             self.driver.execute_script(self.LINK_STUB_JS)
         except Exception:
-            pass
+            log_swallowed("PublishAnswerExecutor._link_stub:7891")
 
     def _link_edge_count(self, group) -> int:
         try:
@@ -7928,7 +7929,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", group)
         except Exception:
-            pass
+            log_swallowed("PublishAnswerExecutor._fill_link_match:7931")
         self._link_stub()
         before = self._link_edge_count(group)
         linked = 0
@@ -7971,7 +7972,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", inp)
             interruptible_sleep(0.2)
         except Exception:
-            pass
+            log_swallowed("PublishAnswerExecutor._fill_text_input_verified:7974")
 
         for _ in range(2):
             if self._type_by_keyboard(inp, ans):
@@ -8060,7 +8061,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 readonly = (element.get_attribute('readonly') or '').strip().lower()
                 disabled = (element.get_attribute('disabled') or '').strip().lower()
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._select_dropdown_value:8063"); continue
             if tag == 'select':
                 if self._select_native_option(element, value):
                     return True
@@ -8084,7 +8085,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         try:
             ActionChains(self.driver).send_keys('\ue00c').perform()
         except Exception:
-            pass
+            log_swallowed("PublishAnswerExecutor._select_dropdown_value:8087")
         return False
 
     @staticmethod
@@ -8099,13 +8100,13 @@ class PublishAnswerExecutor(AnswerExecutor):
             try:
                 candidates = blank.find_elements(By.CSS_SELECTOR, css)
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._dropdown_trigger:8102"); continue
             for element in candidates:
                 try:
                     if element.is_displayed():
                         return element
                 except Exception:
-                    continue
+                    log_swallowed("PublishAnswerExecutor._dropdown_trigger:8108"); continue
         return None
 
     DROPDOWN_POPUP_CSS = ('[class*="digEmptySelectView_dropdownContent"], '
@@ -8123,7 +8124,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 if element.is_displayed() and rect.get('height', 0) > 10:
                     return element
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._visible_dropdown_popup:8126"); continue
         return None
 
     def _nearest_dropdown_trigger(self, popup):
@@ -8143,7 +8144,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 distance = (abs(rect['x'] - popup_rect['x'])
                             + abs(rect['y'] - popup_rect['y']))
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._nearest_dropdown_trigger:8146"); continue
             if best_distance is None or distance < best_distance:
                 best, best_distance = trigger, distance
         return best
@@ -8213,7 +8214,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     target)
                 interruptible_sleep(0.2)
             except Exception:
-                pass
+                log_swallowed("PublishAnswerExecutor._open_dropdown:8216")
             strategies = (
                 ('actionchains', lambda t=target: ActionChains(self.driver)
                     .move_to_element(t).pause(0.2).click().perform()),
@@ -8250,7 +8251,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     continue
                 text = re.sub(r'\s+', ' ', item.text or '').strip()
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._dropdown_options_from_popup:8253"); continue
             if text and 2 < len(text) <= 160 and text not in options:
                 options.append(text)
         return options
@@ -8301,7 +8302,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     continue
                 text = re.sub(r'\s+', '', PublishPlayer.button_text(item)).lower()
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._select_trigger_option:8304"); continue
             if not text:
                 continue
             if text == target:
@@ -8328,7 +8329,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 self._js_mouse_click(chosen)
                 clicked = True
             except Exception:
-                pass
+                log_swallowed("PublishAnswerExecutor._select_trigger_option:8331")
             interruptible_sleep(0.5)
             try:
                 updated = re.sub(r'\s+', '', PublishPlayer.button_text(trigger)).lower()
@@ -8357,7 +8358,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     option.click()
                     return True
                 except Exception:
-                    continue
+                    log_swallowed("PublishAnswerExecutor._select_native_option:8360"); continue
         return False
 
     def _click_dropdown_option(self, value: str) -> bool:
@@ -8375,14 +8376,14 @@ class PublishAnswerExecutor(AnswerExecutor):
             try:
                 candidates = self.driver.find_elements(By.CSS_SELECTOR, css)
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor._click_dropdown_option:8378"); continue
             for element in candidates[:300]:
                 try:
                     if not element.is_displayed():
                         continue
                     text = re.sub(r'\s+', '', PublishPlayer.button_text(element)).lower()
                 except Exception:
-                    continue
+                    log_swallowed("PublishAnswerExecutor._click_dropdown_option:8385"); continue
                 if text == target:
                     if WebDriverHelper.safe_click(self.driver, element):
                         return True
@@ -8400,7 +8401,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 if button.is_displayed():
                     return button
             except Exception:
-                continue
+                log_swallowed("PublishAnswerExecutor.find_submit_button:8403"); continue
         return buttons[0] if buttons else None
 
     @staticmethod
@@ -8471,7 +8472,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     if fresh is not None:
                         current = fresh
                 except Exception:
-                    pass
+                    log_swallowed("PublishAnswerExecutor.wait_graded:8474")
             try:
                 button = self.find_submit_button(current)
                 if button is not None and self.button_is_submitted(button):
@@ -8481,7 +8482,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             except StaleElementReferenceException:
                 current = group
             except Exception:
-                pass
+                log_swallowed("PublishAnswerExecutor.wait_graded:8484")
             rejection = self.rejection_message()
             if rejection:
                 self.last_rejection = rejection
@@ -8579,7 +8580,7 @@ class DiscussionBoardHandler(ContentHandler):
             textarea.click()
             textarea.clear()
         except Exception:
-            pass
+            log_swallowed("DiscussionBoardHandler.handle:8582")
         filled = False
         try:
             self.driver.execute_script("""
@@ -8600,7 +8601,7 @@ class DiscussionBoardHandler(ContentHandler):
             textarea.send_keys(Keys.SPACE)
             textarea.send_keys(Keys.BACKSPACE)
         except Exception:
-            pass
+            log_swallowed("DiscussionBoardHandler.handle:8603")
 
         if self.stop_requested.wait(0.6):
             return False
@@ -8652,7 +8653,7 @@ class DiscussionBoardHandler(ContentHandler):
                     if area.is_displayed():
                         return area
             except Exception:
-                continue
+                log_swallowed("DiscussionBoardHandler._find_textarea:8655"); continue
         return None
 
     def _find_submit(self):
@@ -8667,7 +8668,7 @@ class DiscussionBoardHandler(ContentHandler):
                     if btn.is_displayed() and ('发布' in text or 'submit' in text.lower()):
                         return btn
             except Exception:
-                continue
+                log_swallowed("DiscussionBoardHandler._find_submit:8670"); continue
         return None
 
     def _topic_text(self) -> str:
@@ -8771,7 +8772,7 @@ class AudioHandler(ContentHandler):
                 try:
                     self.driver.execute_script('arguments[0].pause();', audio)
                 except Exception:
-                    pass
+                    log_swallowed("AudioHandler.handle:8774")
         return not self.stop_requested.is_set()
 
 
@@ -8802,7 +8803,7 @@ class SelfCheckHandler(ContentHandler):
                 try:
                     word = row.find_element(By.CSS_SELECTOR, '.content-text').text.strip()
                 except Exception:
-                    pass
+                    log_swallowed("SelfCheckHandler.handle:8805")
 
                 got_it_cell = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2)')
                 icon = got_it_cell.find_element(By.CSS_SELECTOR, '.anticon')
@@ -9013,7 +9014,7 @@ class VideoHandler(ContentHandler):
                 try:
                     self.driver.execute_script("arguments[0].pause();", video)
                 except Exception:
-                    pass
+                    log_swallowed("VideoHandler._play_video:9016")
 
     def _monitor_popup_questions(self):
         print("      [监视器] 开始监视弹窗...")
@@ -9074,7 +9075,7 @@ class VideoHandler(ContentHandler):
                             handling_popup.clear()
 
             except Exception as e:
-                pass
+                log_swallowed("VideoHandler._monitor_popup_questions:9077")
 
             self.stop_monitoring.wait(check_interval)
 
@@ -9098,7 +9099,7 @@ class VideoHandler(ContentHandler):
                         if len(options) >= 2:
                             return elem
             except Exception:
-                continue
+                log_swallowed("VideoHandler._find_popup_question:9101"); continue
         return None
 
     def _get_popup_id(self, popup) -> str:
@@ -9119,7 +9120,7 @@ class VideoHandler(ContentHandler):
                     if title:
                         break
                 except Exception:
-                    continue
+                    log_swallowed("VideoHandler._parse_popup_question:9122"); continue
 
             option_elems = popup.find_elements(By.CSS_SELECTOR,
                                                '.option.isNotReview, .option-wrap .option, .choice-option')
@@ -9136,7 +9137,7 @@ class VideoHandler(ContentHandler):
                             if letter:
                                 break
                         except Exception:
-                            continue
+                            log_swallowed("VideoHandler._parse_popup_question:9139"); continue
 
                     if not letter:
                         letter = chr(65 + i)
@@ -9150,7 +9151,7 @@ class VideoHandler(ContentHandler):
                             if content:
                                 break
                         except Exception:
-                            continue
+                            log_swallowed("VideoHandler._parse_popup_question:9153"); continue
 
                     if not content:
                         content = opt_elem.text.strip()
@@ -9162,7 +9163,7 @@ class VideoHandler(ContentHandler):
                     })
 
                 except Exception:
-                    continue
+                    log_swallowed("VideoHandler._parse_popup_question:9165"); continue
 
             if not options:
                 return None
@@ -9318,7 +9319,7 @@ class VideoHandler(ContentHandler):
                             if letter:
                                 break
                         except Exception:
-                            continue
+                            log_swallowed("VideoHandler._click_option:9321"); continue
 
                     if letter == answer.upper():
                         self.driver.execute_script(
@@ -9335,7 +9336,7 @@ class VideoHandler(ContentHandler):
                         return True
 
                 except Exception:
-                    continue
+                    log_swallowed("VideoHandler._click_option:9338"); continue
 
             try:
                 idx = ord(answer.upper()) - ord('A')
@@ -9349,7 +9350,7 @@ class VideoHandler(ContentHandler):
                     opt_elem.click()
                     return True
             except Exception:
-                pass
+                log_swallowed("VideoHandler._click_option:9352")
 
             return False
 
@@ -9372,7 +9373,7 @@ class VideoHandler(ContentHandler):
                     print("      [监视器]  已提交")
                     return True
             except Exception:
-                continue
+                log_swallowed("VideoHandler._click_submit_if_exists:9375"); continue
         return False
 
     def _resume_video_if_paused(self, video=None) -> bool:
@@ -9439,7 +9440,7 @@ class VideoHandler(ContentHandler):
                             duration = float(detected)
                             max_wait = duration / 2 + 30
                     except Exception:
-                        pass
+                        log_swallowed("VideoHandler._wait_for_video_complete:9442")
 
                 if last_current is None or current != last_current:
                     last_current = current
@@ -9514,7 +9515,7 @@ class FlashcardHandler(ContentHandler):
                     if disabled_next_button:
                         break
                 except Exception:
-                    pass
+                    log_swallowed("FlashcardHandler.handle:9517")
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                     next_btn
@@ -9560,7 +9561,7 @@ class FlashcardHandler(ContentHandler):
                     if elem.is_displayed():
                         return elem
             except Exception:
-                continue
+                log_swallowed("FlashcardHandler._find_next_button:9563"); continue
         return None
 
 
@@ -9805,7 +9806,7 @@ def _install_submit_network_hook(driver) -> None:
             window.__unipusSubmitMonitor.reset();
         """)
     except Exception:
-        pass
+        log_swallowed("_install_submit_network_hook:9808")
 
 
 def _read_submit_network_state(driver) -> Optional[Dict[str, Any]]:
@@ -9876,7 +9877,7 @@ def _describe_submit_timeout_state(driver, net_state: Optional[Dict[str, Any]] =
             if modals:
                 parts.append(f"可见弹窗={modals}")
     except Exception:
-        pass
+        log_swallowed("_describe_submit_timeout_state:9879")
     return ' | '.join(parts)
 
 
@@ -10293,7 +10294,7 @@ class AISolver:
                                 break
                             name_occurrence += 1
                     except Exception:
-                        continue
+                        log_swallowed("AISolver._process_selected_tab:10296"); continue
             except Exception as e:
                 print(f"    重新定位章节失败: {_format_webdriver_error(e, self.driver)}")
 
@@ -10373,7 +10374,7 @@ class AISolver:
         try:
             corpus += " " + " ".join(m.get('content', '') for m in self.ai_client.material_messages)
         except Exception:
-            pass
+            log_swallowed("AISolver._answer_chunked_fill:10376")
         corpus_words = re.findall(r"[A-Za-z][A-Za-z'-]{2,}", corpus)
         while pending:
             if self._should_stop():
@@ -10622,7 +10623,7 @@ class AISolver:
             try:
                 practicing.click()
             except Exception:
-                pass
+                log_swallowed("AISolver._load_learning_inline:10625")
             interruptible_sleep(4)
 
         if len(text) < 120:
@@ -10770,7 +10771,7 @@ class AISolver:
                     self.driver.close()
                     self.driver.switch_to.window(original)
             except Exception:
-                pass
+                log_swallowed("AISolver._load_reading_context:10773")
 
     def _context_reference_tokens(self) -> set:
         text = getattr(self, '_context_reference_text', "") or ""
@@ -11170,14 +11171,14 @@ class AISolver:
         try:
             urls.append(self.driver.current_url or '')
         except Exception:
-            pass
+            log_swallowed("AISolver._answer_api_url_candidates:11173")
         if self._is_publish_page():
             try:
                 frame = PublishPlayer.find_frame(self.driver)
                 if frame is not None:
                     urls.append(frame.get_attribute('src') or '')
             except Exception:
-                pass
+                log_swallowed("AISolver._answer_api_url_candidates:11180")
         return [url for url in urls if url]
 
     def _answer_api_prepare(self, task_label: str = '') -> bool:
@@ -12123,7 +12124,7 @@ class AISolver:
                         if video is not None:
                             self.driver.execute_script('arguments[0].pause()', video)
                     except Exception:
-                        pass
+                        log_swallowed("AISolver._publish_play_task_media:12126")
         return None if self._should_stop() else played
 
     QUIZ_SUPPORTED_KINDS = {
@@ -12148,13 +12149,13 @@ class AISolver:
                     if self.publish_executor._link_edge_count(question.group or question.element) > 0:
                         return True
                 except Exception:
-                    pass
+                    log_swallowed("AISolver._publish_quiz_has_existing_answer:12151")
             for inp in question.inputs:
                 try:
                     if (inp.get_attribute('value') or '').strip():
                         return True
                 except Exception:
-                    continue
+                    log_swallowed("AISolver._publish_quiz_has_existing_answer:12157"); continue
             if question.q_type == QuestionType.DROPDOWN_SELECT:
                 for blank in self.publish_executor._dropdown_blanks(question):
                     try:
@@ -12171,7 +12172,7 @@ class AISolver:
                             if text and text not in self.QUIZ_DROPDOWN_PLACEHOLDERS:
                                 return True
                     except Exception:
-                        continue
+                        log_swallowed("AISolver._publish_quiz_has_existing_answer:12174"); continue
         return False
 
     def _publish_process_quiz(self):
@@ -12449,7 +12450,7 @@ class AISolver:
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", group)
         except Exception:
-            pass
+            log_swallowed("AISolver._publish_answer_group:12452")
         interruptible_sleep(0.4)
 
         if not self._publish_wait_group_rendered(group):
@@ -12663,7 +12664,7 @@ class AISolver:
                 if parser.group_key(state['element']) == key:
                     return index
         except Exception:
-            pass
+            log_swallowed("AISolver._publish_group_index:12666")
         return -1
 
     def _publish_group_at(self, index: int):
@@ -12689,7 +12690,7 @@ class AISolver:
                 if parser.group_submitted(state['element']):
                     count += 1
             except Exception:
-                continue
+                log_swallowed("AISolver._publish_submitted_count:12692"); continue
         return count
 
     def _publish_select_record_question(self, group, question: Question) -> bool:
@@ -12979,7 +12980,7 @@ class AISolver:
                             + (element.get_attribute('aria-label') or '')
                             + (element.get_attribute('title') or '')).lower()
             except Exception:
-                continue
+                log_swallowed("AISolver._publish_find_next_button:12982"); continue
             if any(word in haystack for word in blocked):
                 continue
             if any(word in haystack for word in keywords):
@@ -13019,7 +13020,7 @@ class AISolver:
                         return progress ? progress.style.width : '';
                     """) or ""
                 except Exception:
-                    pass
+                    log_swallowed("AISolver._generate_questions_signature:13022")
             parts.append(f"{q.number}:{q_type}:{text_preview}:{option_preview}:{page_progress}")
 
         return hashlib.md5("|".join(parts).encode()).hexdigest()[:16]
@@ -13112,7 +13113,7 @@ class AISolver:
                     if 'submit' not in text and '提交' not in text:
                         return btn
         except Exception:
-            pass
+            log_swallowed("AISolver._find_next_question_button:13115")
 
         return None
 
@@ -13129,7 +13130,7 @@ class AISolver:
                 if text:
                     return hashlib.md5(text.encode()).hexdigest()[:16]
         except Exception:
-            pass
+            log_swallowed("AISolver._generate_content_hash_from_direction:13132")
         return "empty"
 
     def _generate_content_hash(self) -> str:
@@ -13174,7 +13175,7 @@ class AISolver:
                         'is_active': 'activity' in (elem.get_attribute('class') or '').lower()
                     })
             except Exception:
-                continue
+                log_swallowed("AISolver._get_level1_tabs:13177"); continue
         return tabs
 
     def _get_level2_tabs(self) -> List[Dict]:
@@ -13202,7 +13203,7 @@ class AISolver:
                         'is_active': 'activity' in (elem.get_attribute('class') or '').lower()
                     })
             except Exception:
-                continue
+                log_swallowed("AISolver._get_level2_tabs:13205"); continue
         return tabs
 
     def _extract_passage(self) -> str:
@@ -13223,7 +13224,7 @@ class AISolver:
                     if len(text) > 200:
                         return text
             except Exception:
-                continue
+                log_swallowed("AISolver._extract_passage:13226"); continue
 
         return ""
 
@@ -13287,7 +13288,7 @@ class AISolver:
                     return False
                 return True
         except Exception:
-            pass
+            log_swallowed("AISolver._handle_confirm_dialog:13290")
         return False
 
     def _page_needs_answer(self) -> bool:
@@ -13298,7 +13299,7 @@ class AISolver:
             try:
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
             except Exception:
-                continue
+                log_swallowed("AISolver._page_needs_answer:13301"); continue
             if not isinstance(elements, (list, tuple)):
                 continue
             for element in elements:
@@ -13306,7 +13307,7 @@ class AISolver:
                     if element.is_displayed():
                         return True
                 except Exception:
-                    continue
+                    log_swallowed("AISolver._page_needs_answer:13309"); continue
         return False
 
     def _release_transcriber(self):
@@ -13347,7 +13348,7 @@ class AISolver:
                     if element.find_elements(By.CSS_SELECTOR, 'img[src], img[data-src]'):
                         return True
                 except Exception:
-                    continue
+                    log_swallowed("AISolver._requires_image_context:13350"); continue
         return False
 
     def _question_screenshot(self, questions) -> Optional[bytes]:
@@ -13506,7 +13507,7 @@ class AISolver:
                     if self._extract_audio_url_from_page():
                         return True
             except Exception:
-                pass
+                log_swallowed("AISolver._has_audio_on_page:13509")
 
             return False
         except Exception:
@@ -13522,7 +13523,7 @@ class AISolver:
             try:
                 src = (elem.get_attribute('src') or '').strip()
             except Exception:
-                continue
+                log_swallowed("AISolver._extract_audio_urls_from_page:13525"); continue
             if not src:
                 continue
             key = src.split('#')[0]
@@ -13699,7 +13700,7 @@ class AISolver:
                         last_click_elapsed = elapsed
 
             except Exception:
-                pass
+                log_swallowed("AISolver._wait_for_submit_complete:13702")
 
             if self.stop_requested.wait(0.5):
                 return False
@@ -13728,7 +13729,7 @@ class AISolver:
                     if elem.is_displayed() and AnswerExecutor._is_submit_button(elem):
                         return elem
             except Exception:
-                continue
+                log_swallowed("AISolver._find_visible_submit_button:13731"); continue
 
         return None
 
@@ -13934,7 +13935,7 @@ class UCampusBot:
             try:
                 quit_driver(driver)
             except Exception:
-                pass
+                log_swallowed("UCampusBot._start_browser:13937")
             raise
         try:
             driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -13952,7 +13953,7 @@ class UCampusBot:
             os.makedirs(selenium_cache, exist_ok=True)
             os.environ.setdefault('SE_CACHE_PATH', selenium_cache)
         except Exception:
-            pass
+            log_swallowed("UCampusBot._create_driver:13955")
 
         try:
             return self._start_browser(temp_dir)
@@ -14001,7 +14002,7 @@ class UCampusBot:
                 try:
                     quit_driver(old)
                 except Exception:
-                    pass
+                    log_swallowed("UCampusBot.restart_browser.quit_old:14004")
             worker = threading.Thread(target=quit_old, daemon=True, name="browser-quit")
             worker.start()
             worker.join(timeout=6)
@@ -14017,7 +14018,7 @@ class UCampusBot:
                         else:
                             process.terminate()
                     except (OSError, subprocess.TimeoutExpired):
-                        pass
+                        log_swallowed("UCampusBot.restart_browser:14020")
         self.driver = self._create_driver()
         self.popup_watcher = PopupWatcher(self.driver)
         threading.Thread(target=self.popup_watcher.run, daemon=True, name="popup-watcher").start()
@@ -14048,7 +14049,7 @@ class UCampusBot:
                         WebDriverWait(self.driver, 45).until(self._has_live_auth)
                         authenticated = True
                     except TimeoutException:
-                        pass
+                        log_swallowed("UCampusBot._login:14051")
 
                 if authenticated:
                     username = None
@@ -14082,7 +14083,7 @@ class UCampusBot:
                                 gui_log_queue.put(" 已确认服务协议与隐私政策")
                                 break
                     except Exception:
-                        pass
+                        log_swallowed("UCampusBot._login:14085")
 
                 login_btn = WebDriverWait(self.driver, 20).until(
                     EC.element_to_be_clickable((
@@ -14103,7 +14104,7 @@ class UCampusBot:
                                                                                                       '/html/body/div[3]/div/div[2]/div/div[2]/div/div/div/div[4]/button')))
                 zhidaole_button.click()
             except Exception:
-                pass
+                log_swallowed("UCampusBot._login:14106")
 
             try:
                 anti_cheat_announce_button = WebDriverWait(self.driver, 5).until(
@@ -14111,7 +14112,7 @@ class UCampusBot:
                                                     '/html/body/div[4]/div/div/div/div[2]/div/div/div[4]/div[5]')))
                 anti_cheat_announce_button.click()
             except Exception:
-                pass
+                log_swallowed("UCampusBot._login:14114")
 
             gui_log_queue.put(" 登录验证握手成功！")
             return True
@@ -14367,7 +14368,7 @@ if __name__ == '__main__':
                 try:
                     quit_driver(bot.driver)
                 except Exception:
-                    pass
+                    log_swallowed("<module>:14370")
     sys.exit(exit_code)
 
 

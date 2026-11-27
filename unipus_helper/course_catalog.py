@@ -9,6 +9,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from .task_grading import (READ_GRADING_JS, assign_task_records, build_record_index,
                            grading_text, score_text)
 
+from .swallow import log_swallowed
+
 
 def describe_directory_page_state(driver) -> dict:
     fallback_url = ''
@@ -21,7 +23,7 @@ def describe_directory_page_state(driver) -> dict:
         if isinstance(raw_title, str):
             fallback_title = raw_title
     except Exception:
-        pass
+        log_swallowed("describe_directory_page_state:24")
     try:
         res = driver.execute_script("""
             const clean = t => (t || '').replace(/\\s+/g, ' ').trim();
@@ -40,7 +42,7 @@ def describe_directory_page_state(driver) -> dict:
         if isinstance(res, dict):
             return res
     except Exception:
-        pass
+        log_swallowed("describe_directory_page_state:43")
     return {
         'url': fallback_url,
         'title': fallback_title,
@@ -111,7 +113,7 @@ def select_course_unit(driver, target, stop_requested=None,
                     all_gone = False
                     break
             except StaleElementReferenceException:
-                pass
+                log_swallowed("select_course_unit.ready:114")
         if all_gone:
             return True
         now = time.monotonic()

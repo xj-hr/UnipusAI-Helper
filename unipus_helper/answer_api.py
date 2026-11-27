@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from .swallow import log_swallowed
+
 import base64
 import hashlib
 import hmac
@@ -435,7 +437,7 @@ class AnswerCache:
             try:
                 tmp.unlink()  # type: ignore[possibly-undefined]
             except Exception:
-                pass
+                log_swallowed("AnswerCache._write:438")
 
     def get(self, instance: str, node: str, *, k: Optional[str] = None,
             moment: Optional[float] = None) -> Optional[Dict[str, Any]]:
@@ -604,7 +606,7 @@ class OfficialAnswerProvider:
             try:
                 urls.append(str(driver.current_url or ""))
             except Exception:
-                pass
+                log_swallowed("OfficialAnswerProvider.prepare:607")
         urls.extend(str(item or "").strip() for item in (candidates or []))
 
         instance = node = ""

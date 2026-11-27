@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+from .swallow import log_swallowed
+
 import os
 import platform
 import shutil
@@ -62,7 +64,7 @@ class BrowserSpec:
                 with winreg.OpenKey(root, key_path) as key:
                     path = winreg.QueryValue(key, None)
             except OSError:
-                continue
+                log_swallowed("BrowserSpec._windows_app_path:65"); continue
             if path and os.path.exists(path):
                 return path
         return None
