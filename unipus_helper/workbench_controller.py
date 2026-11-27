@@ -165,7 +165,8 @@ class WorkbenchController(CourseCatalogMixin):
             try:
                 message = str(self.gui_log_queue.get(timeout=.5)).strip()
             except queue.Empty:
-                log_swallowed("WorkbenchController._collect_logs:165"); continue
+                # 队列空是正常轮询结果，不是被忽略的失败，不能计入热点告警
+                continue
             if not message or set(message) <= {"=", "*", "-", " "}:
                 continue
             self._add_log(message, log_level(message))
