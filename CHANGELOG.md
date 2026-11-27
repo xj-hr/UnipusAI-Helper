@@ -11,7 +11,7 @@
 - **`docs/缺陷台账.md`**：新增全口径缺陷台账（20 条：P0×2 / P1×7 / P2×7 / P3×4），每条含证据位置、影响与修复建议，附可复跑的取证命令；修复后回写状态而不删行。
 - **依赖锁定**：新增 `requirements.lock`（uv 编译，164 行），覆盖 6 个直接依赖，CI 按锁文件安装。
 - **CI 复建**：`.github/workflows/ci.yml` 三 job —— `static`（compileall + 凭据扫描 + 锁文件一致性 + 版本号校验）、`tests`（锁文件装依赖 + 刷时长宿主测试）、`js`（页面内控制器测试）。
-- **裸 except 收敛**：`environment_checker.py` 3 处改为 `except Exception` / `except OSError`；主文件 72 处待排期（台账 D-02）。
+- **裸 except 收敛**：`environment_checker.py` 3 处改为 `except Exception` / `except OSError`；主文件 72 处按 AST 位置逐点改为 `except Exception`（`Ctrl+C` 与 `SystemExit` 不再被吞掉）。
 - **安装程序启动**：`subprocess.Popen` 去掉 `shell=True`，避免路径含空格时的解析问题（台账 D-07）。
 - **配置窗口快捷键**：改用 `sequences: [StandardKey.Save/Close]`，消除 Qt 运行期「只绑定一个组合键」警告（台账 D-06）。
 - **启动脚本示例**：新增 `启动.cmd.example`（`%~dp0` 自适应、解释器与主程序存在性自检），真实 `启动.cmd` 仍只在本机（台账 D-15）。
