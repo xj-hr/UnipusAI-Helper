@@ -117,7 +117,7 @@ def setup_logging():
             for old_file in log_files:
                 try:
                     os.remove(old_file)
-                except:
+                except Exception:
                     pass
         except Exception:
             pass
@@ -789,7 +789,7 @@ class WebDriverHelper:
 
                 try:
                     element.click()
-                except:
+                except Exception:
                     driver.execute_script("arguments[0].click();", element)
                 return True
 
@@ -1017,12 +1017,12 @@ class OpenAICompatibleClient:
                             print(f"   HTTP 状态码: {e.response.status_code}")
                             print(f"   响应头: {dict(e.response.headers)}")
                             print(f"   响应体: {e.response.text[:1000]}")
-                        except:
+                        except Exception:
                             pass
                     if hasattr(e, 'body'):
                         try:
                             print(f"   错误body: {e.body}")
-                        except:
+                        except Exception:
                             pass
                     if hasattr(e, 'status_code'):
                         print(f"   status_code: {e.status_code}")
@@ -1115,7 +1115,7 @@ class QuestionParser:
                     ".layout-direction-container .component-htmlview"
                 )
                 direction_text = direction_elem.text.lower()
-            except:
+            except Exception:
                 pass
 
             is_multi_question_type = any(kw in direction_text for kw in [
@@ -1150,7 +1150,7 @@ class QuestionParser:
                         try:
                             if reply.is_displayed() and reply.find_elements(By.CSS_SELECTOR, '.question-inputbox'):
                                 valid_replies.append(reply)
-                        except:
+                        except Exception:
                             continue
 
                     if len(valid_replies) >= 2:
@@ -1169,7 +1169,7 @@ class QuestionParser:
                 ".layout-direction-container .component-htmlview"
             )
             return direction_elem.text.strip()
-        except:
+        except Exception:
             pass
 
         try:
@@ -1178,7 +1178,7 @@ class QuestionParser:
                 ".abs-direction .content"
             )
             return direction_elem.text.strip()
-        except:
+        except Exception:
             pass
 
         try:
@@ -1187,7 +1187,7 @@ class QuestionParser:
                 ".direction-container"
             )
             return direction_elem.text.strip()
-        except:
+        except Exception:
             pass
 
         return ""
@@ -1361,7 +1361,7 @@ class QuestionParser:
             try:
                 if reply.is_displayed() and reply.find_elements(By.CSS_SELECTOR, '.sequence-view, .sortable-list-wrapper'):
                     sequence_containers.append(reply)
-            except:
+            except Exception:
                 continue
         if sequence_containers:
             print(f"     找到 {len(sequence_containers)} 道排序题")
@@ -1380,7 +1380,7 @@ class QuestionParser:
                                                 './parent::div[contains(@class, "question-common-abs-reply")]')
                     if reply not in reply_containers:
                         reply_containers.append(reply)
-                except:
+                except Exception:
                     pass
 
             if reply_containers:
@@ -1409,7 +1409,7 @@ class QuestionParser:
                 has_got_it = 'got it' in container.text.lower()
                 if has_table and has_got_it and container.is_displayed():
                     self_check_containers.append(container)
-            except:
+            except Exception:
                 continue
 
         if self_check_containers:
@@ -1440,7 +1440,7 @@ class QuestionParser:
                     has_content = has_visible_dropdown(self.driver, c)
                 if has_content and c.is_displayed():
                     valid_containers.append(c)
-            except:
+            except Exception:
                 continue
 
         if valid_containers:
@@ -1518,13 +1518,13 @@ class QuestionParser:
                         return False
                 except StaleElementReferenceException:
                     raise
-                except:
+                except Exception:
                     break
 
             return True
         except StaleElementReferenceException:
             raise
-        except:
+        except Exception:
             return False
 
     def _parse_single(self, container, number: int, directions: str = "") -> Optional[Question]:
@@ -1609,7 +1609,7 @@ class SelfCheckStrategy(QuestionParserStrategy):
         try:
             direction_elem = driver.find_element(By.CSS_SELECTOR, '.layout-direction-container, .abs-direction')
             direction_text = direction_elem.text.lower()
-        except:
+        except Exception:
             pass
 
         has_table = bool(container.find_elements(By.CSS_SELECTOR, '.ticket-view table, .ant-table-tbody'))
@@ -1627,7 +1627,7 @@ class SelfCheckStrategy(QuestionParserStrategy):
                 got_it_icon = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2) .anticon')
                 if word and got_it_icon:
                     rows.append({'word': word, 'element': got_it_icon})
-            except:
+            except Exception:
                 continue
 
         return Question(
@@ -1662,7 +1662,7 @@ class SortingStrategy(QuestionParserStrategy):
                     letter = spans[0].text.strip().replace('.', '').replace(')', '').upper()
                     if len(spans) > 1:
                         text = spans[1].text.strip()
-            except:
+            except Exception:
                 pass
 
             if not letter:
@@ -1813,17 +1813,17 @@ class BankedClozeStrategy(QuestionParserStrategy):
                     return (clone.textContent || '').trim();
                 """, context_elem) or ""
                 context = re.sub(r'\s+', ' ', context).strip()
-            except:
+            except Exception:
                 try:
                     context = scoop.text.strip()
-                except:
+                except Exception:
                     context = ""
 
             input_box = None
             try:
                 input_box = scoop.find_element(By.CSS_SELECTOR, 'input')
                 inputs.append(input_box)
-            except:
+            except Exception:
                 pass
 
             banked_blanks.append({
@@ -1862,7 +1862,7 @@ class StandardChoiceStrategy(QuestionParserStrategy):
             try:
                 direction_elem = driver.find_element(By.CSS_SELECTOR, '.layout-direction-container, .abs-direction')
                 direction_text = direction_elem.text.lower()
-            except:
+            except Exception:
                 direction_text = ""
 
         has_listening_hint = any(kw in direction_text for kw in ['listen', 'audio', 'hear', 'conversation', 'passage', 'news'])
@@ -1875,7 +1875,7 @@ class StandardChoiceStrategy(QuestionParserStrategy):
             try:
                 direction_elem = driver.find_element(By.CSS_SELECTOR, '.layout-direction-container, .abs-direction')
                 direction_text = direction_elem.text.lower()
-            except:
+            except Exception:
                 direction_text = ""
 
         has_video_hint = any(kw in direction_text for kw in ['watch', 'video', 'clip'])
@@ -1977,7 +1977,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 for elem in container.find_elements(By.CSS_SELECTOR, selector):
                     if elem.is_displayed():
                         return elem
-            except:
+            except Exception:
                 continue
         return None
 
@@ -1988,7 +1988,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 text = source.text.strip()
                 if text:
                     parts.append(text)
-            except:
+            except Exception:
                 pass
         return "\n".join(parts)
 
@@ -2004,7 +2004,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 text = elem.text.strip()
                 if text:
                     return text
-            except:
+            except Exception:
                 continue
 
         for selector in selectors:
@@ -2013,7 +2013,7 @@ class MyVoiceTextStrategy(QuestionParserStrategy):
                 text = elem.text.strip()
                 if text:
                     return text
-            except:
+            except Exception:
                 continue
         return ""
 
@@ -3028,7 +3028,7 @@ class TextInputStrategy(QuestionParserStrategy):
             try:
                 material = container.find_element(By.CSS_SELECTOR, '.layout-material-container')
                 material_text = material.text.lower()
-            except:
+            except Exception:
                 pass
 
             if any(kw in material_text for kw in self.WRITING_KEYWORDS):
@@ -3043,7 +3043,7 @@ class TextInputStrategy(QuestionParserStrategy):
         try:
             direction_elem = driver.find_element(By.CSS_SELECTOR, '.layout-direction-container .component-htmlview')
             direction_text = direction_elem.text.lower()
-        except:
+        except Exception:
             direction_elem = WebDriverHelper.safe_find_element(
                 driver, ['.layout-direction-container .content', '.abs-direction .content'], container)
             if direction_elem:
@@ -3085,7 +3085,7 @@ class TextInputStrategy(QuestionParserStrategy):
                     direction_elem = driver.find_element(By.CSS_SELECTOR,
                                                          ".layout-direction-container .component-htmlview")
                     effective_directions = direction_elem.text.strip()
-                except:
+                except Exception:
                     pass
 
             container_class = container.get_attribute('class') or ''
@@ -3211,15 +3211,15 @@ class TextInputStrategy(QuestionParserStrategy):
                 try:
                     material = container.find_element(By.CSS_SELECTOR, '.layout-material-container')
                     material_text = material.text.strip()
-                except:
+                except Exception:
                     pass
             if not material_text and driver:
                 try:
                     material = driver.find_element(By.CSS_SELECTOR, '.layout-material-container')
                     material_text = material.text.strip()
-                except:
+                except Exception:
                     pass
-        except:
+        except Exception:
             pass
         return material_text
 
@@ -3243,7 +3243,7 @@ class ListeningFillInStrategy(QuestionParserStrategy):
                 'fill in', 'complete', 'blank', 'blanks'
             ])
             return has_media_hint and has_fill_hint
-        except:
+        except Exception:
             return False
 
     def parse(self, container, driver, question_number: int, directions: str = "") -> Optional[Question]:
@@ -3295,7 +3295,7 @@ class ListeningFillInStrategy(QuestionParserStrategy):
                 text = scoop.find_element(By.XPATH, xpath).text.strip()
                 if text:
                     return text
-            except:
+            except Exception:
                 continue
         return ""
 
@@ -3647,7 +3647,7 @@ class DropdownSelectStrategy(QuestionParserStrategy):
                     text = opt.text.strip()
                     if text and text not in options:
                         options.append(text)
-            except:
+            except Exception:
                 try:
                     select = elem.find_element(By.TAG_NAME, 'select')
                     option_elems = select.find_elements(By.TAG_NAME, 'option')
@@ -3655,7 +3655,7 @@ class DropdownSelectStrategy(QuestionParserStrategy):
                         text = opt.text.strip()
                         if text and text not in ['', CLOZE_DROPDOWN_PLACEHOLDER]:
                             options.append(text)
-                except:
+                except Exception:
                     pass
 
             blanks.append({
@@ -4860,7 +4860,7 @@ class AnswerExecutor:
                 opt = q.options[idx]
                 print(f"\t通过索引匹配选项 {opt.letter}: {opt.text[:30]}...")
                 return WebDriverHelper.safe_click(self.driver, opt.element)
-        except:
+        except Exception:
             pass
 
         return False
@@ -4937,7 +4937,7 @@ class AnswerExecutor:
                 spans = elem.find_elements(By.TAG_NAME, 'span')
                 if spans:
                     letter = spans[0].text.strip().replace('.', '').replace(')', '').upper()
-            except:
+            except Exception:
                 pass
             if not letter:
                 match = re.match(r'^([A-Z])[\s.、)]*', text)
@@ -5982,7 +5982,7 @@ class AnswerExecutor:
         try:
             current = inp.get_attribute('value') or ''
             return current.strip() == ans.strip()
-        except:
+        except Exception:
             return False
 
     def _upload_my_voice_answer_file(self, q: Question, answer: str) -> bool:
@@ -6011,7 +6011,7 @@ class AnswerExecutor:
         try:
             media_list = q.element.find_element(By.CSS_SELECTOR, '.question-multi-file-upload .media-list')
             return bool(media_list.find_elements(By.XPATH, './*')) or bool(media_list.text.strip())
-        except:
+        except Exception:
             return False
 
     def _my_voice_upload_status(self, q: Question) -> Dict[str, Any]:
@@ -6285,7 +6285,7 @@ class AnswerExecutor:
                 for btn in btns:
                     if btn.is_displayed() and btn.is_enabled() and self._is_submit_button(btn):
                         return WebDriverHelper.safe_click(self.driver, btn)
-            except:
+            except Exception:
                 continue
 
         for selector in Selectors.SUBMIT_BUTTON:
@@ -6294,7 +6294,7 @@ class AnswerExecutor:
                 for btn in btns:
                     if btn.is_displayed() and btn.is_enabled() and self._is_submit_button(btn):
                         return WebDriverHelper.safe_click(self.driver, btn)
-            except:
+            except Exception:
                 continue
 
         try:
@@ -6473,7 +6473,7 @@ class AnswerExecutor:
                         )
                         if dropdown_menu.is_displayed():
                             break
-                    except:
+                    except Exception:
                         pass
                     interruptible_sleep(0.3)
 
@@ -6535,7 +6535,7 @@ class AnswerExecutor:
                                 print(f"         XPath点击选项")
                                 option_clicked = True
                                 break
-                        except:
+                        except Exception:
                             continue
 
                 if option_clicked:
@@ -6730,7 +6730,7 @@ class AnswerExecutor:
             return true;
             """
             return self.driver.execute_script(js, select_wrapper, value)
-        except:
+        except Exception:
             return False
 
 
@@ -8801,7 +8801,7 @@ class SelfCheckHandler(ContentHandler):
                 word = ""
                 try:
                     word = row.find_element(By.CSS_SELECTOR, '.content-text').text.strip()
-                except:
+                except Exception:
                     pass
 
                 got_it_cell = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2)')
@@ -8940,7 +8940,7 @@ class VideoHandler(ContentHandler):
                 'duration': duration or 0,
                 'element': video
             }
-        except:
+        except Exception:
             return None
 
     def _transcribe_video(self, video_url: str, duration: float) -> str:
@@ -9097,7 +9097,7 @@ class VideoHandler(ContentHandler):
                         options = elem.find_elements(By.CSS_SELECTOR, '.option, .option-wrap .option')
                         if len(options) >= 2:
                             return elem
-            except:
+            except Exception:
                 continue
         return None
 
@@ -9105,7 +9105,7 @@ class VideoHandler(ContentHandler):
         try:
             text = popup.text
             return hashlib.md5(text[:200].encode()).hexdigest()[:16]
-        except:
+        except Exception:
             return str(time.time())
 
     def _parse_popup_question(self, popup) -> Optional[Dict]:
@@ -9118,7 +9118,7 @@ class VideoHandler(ContentHandler):
                     title = elem.text.strip()
                     if title:
                         break
-                except:
+                except Exception:
                     continue
 
             option_elems = popup.find_elements(By.CSS_SELECTOR,
@@ -9135,7 +9135,7 @@ class VideoHandler(ContentHandler):
                             letter = letter_elem.text.strip().replace('.', '').replace(')', '').upper()
                             if letter:
                                 break
-                        except:
+                        except Exception:
                             continue
 
                     if not letter:
@@ -9149,7 +9149,7 @@ class VideoHandler(ContentHandler):
                             content = content_elem.text.strip()
                             if content:
                                 break
-                        except:
+                        except Exception:
                             continue
 
                     if not content:
@@ -9161,7 +9161,7 @@ class VideoHandler(ContentHandler):
                         'element': opt_elem
                     })
 
-                except:
+                except Exception:
                     continue
 
             if not options:
@@ -9317,7 +9317,7 @@ class VideoHandler(ContentHandler):
                             letter = letter_elem.text.strip().replace('.', '').replace(')', '').upper()
                             if letter:
                                 break
-                        except:
+                        except Exception:
                             continue
 
                     if letter == answer.upper():
@@ -9329,12 +9329,12 @@ class VideoHandler(ContentHandler):
 
                         try:
                             opt_elem.click()
-                        except:
+                        except Exception:
                             self.driver.execute_script("arguments[0].click();", opt_elem)
 
                         return True
 
-                except:
+                except Exception:
                     continue
 
             try:
@@ -9348,7 +9348,7 @@ class VideoHandler(ContentHandler):
                     interruptible_sleep(0.2)
                     opt_elem.click()
                     return True
-            except:
+            except Exception:
                 pass
 
             return False
@@ -9371,7 +9371,7 @@ class VideoHandler(ContentHandler):
                     btn.click()
                     print("      [监视器]  已提交")
                     return True
-            except:
+            except Exception:
                 continue
         return False
 
@@ -9464,7 +9464,7 @@ class VideoHandler(ContentHandler):
                 if self.stop_requested.wait(0.5):
                     break
 
-            except:
+            except Exception:
                 break
 
         return False
@@ -9479,7 +9479,7 @@ class VideoHandler(ContentHandler):
                 if self.driver.find_elements(By.CSS_SELECTOR, indicator):
                     return True
             return False
-        except:
+        except Exception:
             return False
 
 
@@ -9513,7 +9513,7 @@ class FlashcardHandler(ContentHandler):
                     disabled_next_button = self.driver.find_element(By.CSS_SELECTOR, '.action.next.disabled')
                     if disabled_next_button:
                         break
-                except:
+                except Exception:
                     pass
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
@@ -9523,7 +9523,7 @@ class FlashcardHandler(ContentHandler):
                     return False
                 try:
                     next_btn.click()
-                except:
+                except Exception:
                     self.driver.execute_script("arguments[0].click();", next_btn)
                 clicked += 1
                 if self.stop_requested.wait(0.5):
@@ -9559,7 +9559,7 @@ class FlashcardHandler(ContentHandler):
                 for elem in elems:
                     if elem.is_displayed():
                         return elem
-            except:
+            except Exception:
                 continue
         return None
 
@@ -13111,7 +13111,7 @@ class AISolver:
                 if any(k in text for k in ['下一题', 'next question', '下一页', 'next']):
                     if 'submit' not in text and '提交' not in text:
                         return btn
-        except:
+        except Exception:
             pass
 
         return None
@@ -13128,7 +13128,7 @@ class AISolver:
                 text = direction_elem.text.strip()
                 if text:
                     return hashlib.md5(text.encode()).hexdigest()[:16]
-        except:
+        except Exception:
             pass
         return "empty"
 
@@ -13173,7 +13173,7 @@ class AISolver:
                         'title': title,
                         'is_active': 'activity' in (elem.get_attribute('class') or '').lower()
                     })
-            except:
+            except Exception:
                 continue
         return tabs
 
@@ -13201,7 +13201,7 @@ class AISolver:
                         'title': title,
                         'is_active': 'activity' in (elem.get_attribute('class') or '').lower()
                     })
-            except:
+            except Exception:
                 continue
         return tabs
 
@@ -13222,7 +13222,7 @@ class AISolver:
                     text = elem.text.strip()
                     if len(text) > 200:
                         return text
-            except:
+            except Exception:
                 continue
 
         return ""
@@ -13505,11 +13505,11 @@ class AISolver:
                 if any(kw in text for kw in ['listen', 'audio', 'hear', 'talk', 'conversation']):
                     if self._extract_audio_url_from_page():
                         return True
-            except:
+            except Exception:
                 pass
 
             return False
-        except:
+        except Exception:
             return False
 
     def _extract_audio_urls_from_page(self) -> List[str]:
@@ -13727,7 +13727,7 @@ class AISolver:
                 for elem in elems:
                     if elem.is_displayed() and AnswerExecutor._is_submit_button(elem):
                         return elem
-            except:
+            except Exception:
                 continue
 
         return None
