@@ -11495,6 +11495,37 @@ class AISolver:
         if used or fallback:
             print(f"    官方答案接口：直接作答 {used} 个大题，回落 AI {fallback} 次")
 
+    def _split_record_questions(self, questions):
+        """按题型把本页题目分组：普通题 / 录音题 / 按配置跳过的录音题。
+
+        这是 D-03（455 行函数拆分）的第一块：纯计算，不提交、不改实例状态，
+        行为与原内联代码完全一致，用于确立后续阶段抽离的模板。
+        """
+        normal_questions = [q for q in questions if q.q_type not in [
+            QuestionType.VOCABULARY_FLASHCARD,
+            QuestionType.VIDEO,
+            QuestionType.AUDIO,
+            QuestionType.SELF_CHECK,
+            QuestionType.DISCUSSION_BOARD
+        ]]
+
+        skip_mode = self._skip_record_mode()
+        record_questions = [q for q in normal_questions
+                            if q.q_type in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
+        skipped_records = [q for q in record_questions
+                           if should_skip_record_question(q, skip_mode)]
+        active_records = [q for q in record_questions if q not in skipped_records]
+        if skipped_records:
+            normal_questions = [q for q in normal_questions if q not in skipped_records]
+
+        total_questions = len(normal_questions)
+        all_self_submitting = (
+            bool(active_records)
+            and len(active_records) == total_questions
+            and all(q.is_self_submitting_record for q in active_records)
+        )
+        return normal_questions, skipped_records, active_records, total_questions, all_self_submitting, skip_mode
+
     def _process_current_tab_content(self, chapter_name: str, tab_name: str, l1_idx: int, l2_idx: int,
                                      prefetch: Optional[AnswerPrefetch] = None,
                                      prefetch_signature: str = "",
@@ -11609,32 +11640,11 @@ class AISolver:
                             return True
                         break
 
-            normal_questions = [q for q in questions if q.q_type not in [
-                QuestionType.VOCABULARY_FLASHCARD,
-                QuestionType.VIDEO,
-                QuestionType.AUDIO,
-                QuestionType.SELF_CHECK,
-                QuestionType.DISCUSSION_BOARD
-            ]]
-
-            skip_mode = self._skip_record_mode()
-            record_questions = [q for q in normal_questions
-                                if q.q_type in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
-            skipped_records = [q for q in record_questions
-                               if should_skip_record_question(q, skip_mode)]
-            active_records = [q for q in record_questions if q not in skipped_records]
+            normal_questions, skipped_records, active_records, total_questions, \
+                all_self_submitting, skip_mode = self._split_record_questions(questions)
             if skipped_records:
                 total_record_skipped += len(skipped_records)
                 print(f"    本页 {len(skipped_records)} 道跟读/录音题，已按配置（{skip_mode}）自动跳过")
-                normal_questions = [q for q in normal_questions if q not in skipped_records]
-
-            total_questions = len(normal_questions)
-
-            all_self_submitting = (
-                bool(active_records)
-                and len(active_records) == total_questions
-                and all(q.is_self_submitting_record for q in active_records)
-            )
             record_answered = 0
             if active_records:
                 if page_num == 1 and not len(self._vocab()) and self._needs_vocabulary(active_records):
