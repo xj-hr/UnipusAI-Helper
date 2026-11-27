@@ -17,6 +17,9 @@
 - **启动脚本示例**：新增 `启动.cmd.example`（`%~dp0` 自适应、解释器与主程序存在性自检），真实 `启动.cmd` 仍只在本机（台账 D-15）。
 - **刷时长参数进界面**：配置面板新增「刷时长」卡片，可编辑默认启用、层级步长（1–6）、切换间隔（1–120 分钟）、限定节次范围与循环；QML 用扁平 `tb_*` 字段，`ConfigEditor.save()` 还原为 `time_brushing` 嵌套结构并校验，非法值直接提示不落盘。
 - **真机排查脚本**：迁回 `scripts/probe_time_brushing.py`（侧栏普查 + 选择器探测）与 `scripts/brush_pilot_3min.py`（短时挂机观察）；课程页地址改为 `--url` 必填，避免把个人课程 ID 写进公开仓库。
+- **可中断等待**：`UnipusAI_Helper.py` 的 62 处 `time.sleep()` 统一改为 `interruptible_sleep()`（0.25s 分片 + 停止信号表），点击停止后不必再等完整等待；语义与原来一致，仅更早收手。
+- **互斥提示**：刷时长占用时点答题，提示改为「刷时长进行中，答题与刷时长互斥，请先停止刷时长」（原先落到通用忙碌分支）。
+- **实测脚本采样**：挂机实测在「归位」生效后才建立首条页面记录，修正首屏标签滞后一页的问题。
 
 - **刷时长入口**：工作台新增「刷时长 / 停止刷时长」按钮，入口在 `Main.qml`，经 `WorkbenchController.start_brushing()` 调 `UCampusBot.build_time_brushing_runner()`；运行中按钮只置灰答题类操作，避免被 busy 锁死。
 - **模式互斥**：`UCampusBot` 新增 `mode_guard = ModeGuard()`，刷时长与答题（`run` / `quick`）共用同一门闩，互相拒绝并给出中文提示。

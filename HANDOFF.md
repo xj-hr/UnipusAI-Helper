@@ -51,6 +51,7 @@
 | 2026-11-27 | 刷时长参数接入配置面板（启用/层级/间隔/范围/循环） | `b51d032` |
 | 2026-11-27 | 探针/实测脚本迁回 `scripts/`，真机跑通；课程地址改 `--url` 必填 | `b15a5b0` |
 | 2026-11-27 | 挂机真机验证：2 分钟两次切换（60.2s/次）+ 控制器启停与 `ModeGuard` 释放通过 | 见 `logs/pilot_3min_20261127_150232` |
+| 2026-11-27 | 修复 D-22 互斥文案、D-21 首屏采样、D-05 六十二处 sleep 可中断 | `3bd2729` / `fe371fc` / `d778c80` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
@@ -152,3 +153,4 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 | 仅 `ci.yml` 推到 `fork/main`（`3ef2223`）登记工作流；推送触发的首次运行 3 job 全失败（main 缺 lock/tests/assets） | `3ef2223` |
 | 2026-11-27 | `on.push.branches` 加 `feat-brush-duration`；该分支 push 自动跑通三 job | `2303e27` |
 | 2026-11-27 | `fork/main` 补 lock/tests/assets 后 CI 在 main 上同样全绿 | `f54d14a` |
+| 2026-11-27 | 补记 §3：D-13 参数面板、D-14 脚本迁移、D-16/D-17 真机验证、D-05/D-21/D-22 修复 | `docs(缺陷台账)` 提交 |
