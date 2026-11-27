@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-3.9.18-2561C7">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.9.18--fork.1-2561C7">
   <img alt="Python" src="https://img.shields.io/badge/python-3.9+-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555555">
   <img alt="Browser" src="https://img.shields.io/badge/browser-Edge%20%7C%20Chrome-43B02A">
@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="#本-fork-的维护须知先读这一段">维护须知</a> ·
   <a href="#特性">特性</a> ·
   <a href="#支持题型">支持题型</a> ·
   <a href="#快速开始">快速开始</a> ·
@@ -26,6 +27,69 @@
   <a href="#常见问题">常见问题</a> ·
   <a href="#更新日志">更新日志</a>
 </p>
+
+---
+
+## 本 fork 的维护须知（先读这一段）
+
+> 如果你是接手的人，先看这一节。更细的上下文在 `HANDOFF.md`，问题清单与治理账在 `docs/缺陷台账.md`，协作约束在 `AGENTS.md`。
+
+- **版本**：`v3.9.18-fork.1`
+- **基线**：上游 `99dc849`（v3.9.18）；`APP_VERSION` 保持 `3.9.18` 与上游对齐，fork 增量用后缀区分，避免将来上游发版撞名
+- **分支**：`feat-brush-duration`，已推 `fork` 远端；`origin` 无写权限（见 `docs/缺陷台账.md` D-19）
+- **台账**：22 条问题中 18 条已修复、1 条部分修复（D-11 结构治理）、2 条待真机确认（D-16/D-17）、1 条待账号权限（D-19）
+
+### 相对上游的增量
+
+| 增量 | 说明 | 关键位置 |
+| --- | --- | --- |
+| 刷时长 | 按配置的间隔在课程目录里顺序切换节点，支持层级、间隔随机化、范围与循环 | `assets/time_brushing_controller.js`、`time_brushing.py`、`unipus_helper/workbench_controller.py` |
+| 可中断等待 | 62 处 `time.sleep` 换成 `interruptible_sleep()`（0.25s 分片），点停止后立即收手 | `UnipusAI_Helper.py` 顶部 |
+| 静默异常留痕 | 176 处 `except: pass/continue` 插入 `log_swallowed()`，同一位置第 20 次升级为告警，并传导到 `snapshot.degraded` | `unipus_helper/swallow.py` |
+| 答题主流程拆分 | 三处超长函数收敛为 171 / 114 / 83 行，外移 12 个可测方法 | `UnipusAI_Helper.py`、`unipus_helper/accuracy_control.py` |
+| 日志结构化 | 548 处 `print()` 改为 `log_print()`，带显式级别并保留真实调用点 | `UnipusAI_Helper.py` 的 `log_print` |
+| 工具函数外迁 | 12 个无依赖函数移入 `unipus_helper/`，主文件降至 14,159 行 | `submit_hooks.py`、`text_utils.py`、`record_utils.py` |
+
+### 目录结构
+
+完整目录树见下方 [项目目录结构](#项目目录结构)；新增文件集中在 `unipus_helper/`、`scripts/` 与 `tests/`。
+
+### 开发与验证
+
+```bash
+python -m pip install -r requirements.txt
+python UnipusAI_Helper.py --skip-check     # 跳过环境自检直接启动
+```
+
+离线测试共 9 套、151 项断言，全部可在无网络下运行：
+
+| 命令 | 项数 | 说明 |
+| --- | --- | --- |
+| `python tests/test_time_brushing.py` | 59 | 刷时长宿主逻辑 |
+| `node tests/test_time_brushing_controller.js` | 56 | 刷时长前端控制器 |
+| `python tests/test_swallow.py` | 6 | 异常留痕与热点升级 |
+| `python tests/test_page_parse_baseline.py` | 3 | 页面解析基线（需 Edge，缺失自动 SKIP） |
+| `python tests/test_special_questions.py` | 7 | 特殊题分发 |
+| `python tests/test_next_question.py` | 6 | 翻页 |
+| `python tests/test_record_answering.py` | 5 | 录音题作答 |
+| `python tests/test_normal_questions.py` | 4 | 官方答案 / AI 作答 |
+| `python tests/test_inspect_item.py` | 5 | 题型分支 |
+
+改答题链路时，`test_page_parse_baseline.py` 是唯一能证明「解析结果没变」的凭据；它依赖 `logs/samples/sweep15_parse.html`（本地样本，不入库），没有该文件时只跑合成页用例。
+
+### 诊断脚本（都会改动线上状态，按需使用）
+
+| 脚本 | 用途 | 是否只读 |
+| --- | --- | --- |
+| `scripts/probe_time_brushing.py` | 侧栏普查与选择器探测 | 只读 |
+| `scripts/brush_pilot_3min.py` | 短时挂机实测，记录切换耗时 | 会真实切换课程节点 |
+| `scripts/sweep_question_pages.py` | 遍历单元采样页面 HTML，命中题目页即停 | 拦提交、停播放，只导航与解析 |
+
+### 环境与配置
+
+- 配置真源为 `config.json`（不入库），字段参考 `config.example.json`；请勿把真实账号或 API Key 写入示例文件。
+- 本地依赖：Selenium + Edge/msedgedriver（版本需匹配）、本地 Whisper `base` 模型、PySide6 ≥ 6.8。
+- 无头/离屏运行用 `QT_QPA_PLATFORM=offscreen`；真实显示回归可用 `mainloop(screenshot=...)` 抓窗口图。
 
 ---
 
@@ -292,34 +356,48 @@ U 校园覆盖的教材版本较多，不同课程的页面结构与题型差异
 
 ```text
 UnipusAI-Helper/
-├── UnipusAI_Helper.py          # 主程序入口与作答核心逻辑
-├── config.example.json         # 配置模板
-├── requirements.txt            # Python 依赖清单
-├── README.md                   # 项目说明
-├── CHANGELOG.md                # 完整更新日志
-├── LICENSE                     # AGPLv3 协议
+├── UnipusAI_Helper.py          # 主程序入口、AISolver、UCampusBot、解析器族
+├── config.example.json         # 配置模板（真实账号请写进 config.json，不入库）
+├── requirements.txt            # 依赖下限
+├── requirements.lock           # 锁定版本（CI 按它安装）
+├── README.md / CHANGELOG.md    # 说明与变更记录
+├── HANDOFF.md                  # 交接说明（当前状态、待办、决策）
+├── AGENTS.md                   # 协作与操作约束
+├── assets/
+│   └── time_brushing_controller.js  # 刷时长前端控制器（UMD，零依赖）
 ├── unipus_helper/              # 业务模块与原生界面
-│   ├── accuracy_control.py     # 客观题目标正确率配额与后处理扰动
+│   ├── accuracy_control.py     # 目标正确率控场（判分分支已拆分）
 │   ├── answer_api.py           # 官方答案接口获取与本地缓存
 │   ├── audio_recognizer.py     # 本地 Whisper 音频转写
 │   ├── browser.py              # Edge / Chrome 后端检测与启动
+│   ├── course_catalog.py       # 课程目录扫描与单元切换
 │   ├── environment_checker.py  # 运行环境与 FFmpeg 检查
-│   ├── course_catalog.py       # 课程目录扫描
 │   ├── record_skip.py          # 跟读/录音任务三档跳过策略
+│   ├── record_utils.py         # 录音按钮多候选选择器
+│   ├── submit_hooks.py         # 提交网络钩子、提交状态、浮层关闭
+│   ├── swallow.py              # 被忽略异常留痕与热点升级
 │   ├── task_grading.py         # 计分状态识别与筛选
-│   ├── workbench_controller.py # 任务状态、调度与日志管理
+│   ├── text_utils.py           # CJK 提示、相似度、布尔、JWT 解析
+│   ├── workbench_controller.py # 任务状态、调度、刷时长互斥与日志
 │   ├── native_ui.py            # Python / QML 桥接与配置保存
 │   ├── paths.py                # 项目与资源路径解析
 │   └── qml/                    # Qt Quick / QML 界面、主题与图标
-├── scripts/                    # macOS 快捷启动脚本
-└── docs/images/                # README 界面与流程截图
+├── scripts/                    # 真机排查与页面采样脚本
+│   ├── probe_time_brushing.py  # 侧栏普查（只读）
+│   ├── brush_pilot_3min.py     # 短时挂机实测
+│   └── sweep_question_pages.py # 遍历单元采样题目页
+├── tests/                      # 离线测试（默认入库，见「开发与验证」）
+├── docs/                       # 缺陷台账、可行性分析、需求清单与截图
+│   ├── 缺陷台账.md
+│   └── images/
+└── logs/                       # 运行日志与样本（不入库）
 ```
 
 ---
 
 ## 更新日志
 
-近期版本摘要（完整记录见 [CHANGELOG.md](CHANGELOG.md)）：
+本 fork 的变更见 [CHANGELOG.md](CHANGELOG.md)，当前版本 `v3.9.18-fork.1`；以下为上游历史摘要：
 
 - **v3.9.18（2026-11-26）**：修复批量切换 Unit 超时与长文本提交确认超时（issue #73）：支持课程目录慢加载自动重载与完整状态诊断、同模板 Unit 切换防超时、长文本 iCorrect 异步评测延长等待至 60s、弹窗容器化分类处理及 My voice 附件上传完成校验。
 - **v3.9.17（2026-11-26）**：新增实验性官方答案接口（`answer_api_enabled`，默认开启），客观题优先直填平台答案并跳过不必要的原文读取与音频转写、支持与 `target_accuracy` 配合控分；大模型 API 改为可选（未配置时需 AI 任务自动跳过），右上角模型检测改为手动触发。
