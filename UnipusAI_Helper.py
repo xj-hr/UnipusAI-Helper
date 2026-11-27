@@ -12511,6 +12511,106 @@ class AISolver:
                 return 'skipped'
             return 'error'
 
+    def _publish_fill_group(self, group, questions, group_type, direction, answer_index, key):
+        """按组填答发布页（D-03 拆分之六）：录音组 / 官方答案 / AI 三条路径。
+
+        返回：
+          ("count", n)            本组已填 n 题
+          ("skipped_no_ai", None) 调用方返回该字符串
+          ("stop", None)          调用方 return False
+        """
+        filled = 0
+        if all(question.q_type == QuestionType.RECORD for question in questions):
+            if any(question.needs_speech_script for question in questions) and not self._ai_available():
+                print(f"    题目组 {group_type} 含主观口语题但未配置 AI 接口，跳过该组")
+                self._publish_processed_groups.add(key)
+                return "skipped_no_ai", None
+            if not self._publish_prepare_media(group):
+                return "stop", None
+            for question in questions:
+                if self._should_stop() or not self._publish_group_in_scope(group):
+                    return "stop", None
+                if not self._publish_select_record_question(group, question):
+                    print("    无法切换到口语小题，不提交")
+                    return "stop", None
+                if self.publish_executor.publish_record_uploaded(question):
+                    print("    本题已有上传录音，保留现有结果")
+                    filled += 1
+                    continue
+                answer = ''
+                if question.needs_speech_script:
+                    if group_type == 'oral_sentence_scoop_group':
+                        prompt = ('将题目中的中文括注翻译成英文，填入相应空位，返回完整英文句子。'
+                                  '去掉题号、空号、括号和中文提示，只返回可朗读的英文：\n' + question.text)
+                    else:
+                        prompt = self.prompt_builder.build_speaking_script(question, direction)
+                    answer = self.ai_client.ask(
+                        prompt, stop_requested=self.stop_requested,
+                        screenshot=self._question_screenshot([question]),
+                        require_image=self._requires_image_context([question]))
+                    if not answer or self._should_stop():
+                        print("    AI 未返回口语稿")
+                        return "stop", None
+                if self.publish_executor.execute(question, answer):
+                    filled += 1
+        else:
+            official_answers = None
+            api_provider = getattr(self, 'answer_api', None)
+            if api_provider is not None and getattr(api_provider, 'active', False) \
+                    and not getattr(api_provider, 'abandoned', False):
+                official_answers = self._answer_api_publish_answers(questions, answer_index)
+            if official_answers is not None:
+                if not self._publish_prepare_media(group, skip_transcription=True):
+                    return "stop", None
+                adjusted_official, _ = self._accuracy_controller().apply_to_items(
+                    list(zip(questions, official_answers)),
+                    enforce_submit_floor=True,
+                )
+                print(f"    本组 {len(adjusted_official)} 题已使用官方答案填写，跳过 AI")
+                self.publish_executor._exact_official_mode = True
+                try:
+                    for question, answer in zip(questions, adjusted_official):
+                        if self._should_stop() or not self._publish_group_in_scope(group):
+                            return "stop", None
+                        if answer and self.publish_executor.execute(question, answer):
+                            filled += 1
+                finally:
+                    self.publish_executor._exact_official_mode = False
+            else:
+                if not self._ai_available():
+                    print(f"    题目组 {group_type} 未能通过官方答案完成且未配置 AI 接口，跳过该组")
+                    self._publish_processed_groups.add(key)
+                    return "skipped_no_ai", None
+                if not self._publish_prepare_media(group, skip_transcription=False):
+                    return "stop", None
+                prompt = self._publish_build_group_prompt(
+                    questions, direction, group_type=group_type
+                )
+                ai_response = self.ai_client.ask(
+                    prompt, stop_requested=self.stop_requested,
+                    screenshot=self._question_screenshot(questions),
+                    require_image=self._requires_image_context(questions))
+                if self._should_stop():
+                    return "stop", None
+                if not ai_response:
+                    print("    AI 未返回答案")
+                    return "stop", None
+                prepared_items = self._publish_prepare_answers(
+                    questions, ai_response, group=group
+                )
+                if prepared_items is None:
+                    return "stop", None
+
+                adjusted_answers, _ = self._accuracy_controller().apply_to_items(
+                    prepared_items, enforce_submit_floor=True
+                )
+                for (question, _), answer in zip(prepared_items, adjusted_answers):
+                    if self._should_stop() or not self._publish_group_in_scope(group):
+                        return "stop", None
+                    if answer and self.publish_executor.execute(question, answer):
+                        filled += 1
+        return "count", filled
+
     def _publish_answer_group(self, group, group_type: str, key: str,
                               answer_index: Optional[int] = None):
         parser = self.publish_parser
@@ -12556,95 +12656,13 @@ class AISolver:
             return 'skipped_record'
 
         filled = 0
-        if all(question.q_type == QuestionType.RECORD for question in questions):
-            if any(question.needs_speech_script for question in questions) and not self._ai_available():
-                print(f"    题目组 {group_type} 含主观口语题但未配置 AI 接口，跳过该组")
-                self._publish_processed_groups.add(key)
-                return 'skipped_no_ai'
-            if not self._publish_prepare_media(group):
-                return False
-            for question in questions:
-                if self._should_stop() or not self._publish_group_in_scope(group):
-                    return False
-                if not self._publish_select_record_question(group, question):
-                    print("    无法切换到口语小题，不提交")
-                    return False
-                if self.publish_executor.publish_record_uploaded(question):
-                    print("    本题已有上传录音，保留现有结果")
-                    filled += 1
-                    continue
-                answer = ''
-                if question.needs_speech_script:
-                    if group_type == 'oral_sentence_scoop_group':
-                        prompt = ('将题目中的中文括注翻译成英文，填入相应空位，返回完整英文句子。'
-                                  '去掉题号、空号、括号和中文提示，只返回可朗读的英文：\n' + question.text)
-                    else:
-                        prompt = self.prompt_builder.build_speaking_script(question, direction)
-                    answer = self.ai_client.ask(
-                        prompt, stop_requested=self.stop_requested,
-                        screenshot=self._question_screenshot([question]),
-                        require_image=self._requires_image_context([question]))
-                    if not answer or self._should_stop():
-                        print("    AI 未返回口语稿")
-                        return False
-                if self.publish_executor.execute(question, answer):
-                    filled += 1
-        else:
-            official_answers = None
-            api_provider = getattr(self, 'answer_api', None)
-            if api_provider is not None and getattr(api_provider, 'active', False) \
-                    and not getattr(api_provider, 'abandoned', False):
-                official_answers = self._answer_api_publish_answers(questions, answer_index)
-            if official_answers is not None:
-                if not self._publish_prepare_media(group, skip_transcription=True):
-                    return False
-                adjusted_official, _ = self._accuracy_controller().apply_to_items(
-                    list(zip(questions, official_answers)),
-                    enforce_submit_floor=True,
-                )
-                print(f"    本组 {len(adjusted_official)} 题已使用官方答案填写，跳过 AI")
-                self.publish_executor._exact_official_mode = True
-                try:
-                    for question, answer in zip(questions, adjusted_official):
-                        if self._should_stop() or not self._publish_group_in_scope(group):
-                            return False
-                        if answer and self.publish_executor.execute(question, answer):
-                            filled += 1
-                finally:
-                    self.publish_executor._exact_official_mode = False
-            else:
-                if not self._ai_available():
-                    print(f"    题目组 {group_type} 未能通过官方答案完成且未配置 AI 接口，跳过该组")
-                    self._publish_processed_groups.add(key)
-                    return 'skipped_no_ai'
-                if not self._publish_prepare_media(group, skip_transcription=False):
-                    return False
-                prompt = self._publish_build_group_prompt(
-                    questions, direction, group_type=group_type
-                )
-                ai_response = self.ai_client.ask(
-                    prompt, stop_requested=self.stop_requested,
-                    screenshot=self._question_screenshot(questions),
-                    require_image=self._requires_image_context(questions))
-                if self._should_stop():
-                    return False
-                if not ai_response:
-                    print("    AI 未返回答案")
-                    return False
-                prepared_items = self._publish_prepare_answers(
-                    questions, ai_response, group=group
-                )
-                if prepared_items is None:
-                    return False
-
-                adjusted_answers, _ = self._accuracy_controller().apply_to_items(
-                    prepared_items, enforce_submit_floor=True
-                )
-                for (question, _), answer in zip(prepared_items, adjusted_answers):
-                    if self._should_stop() or not self._publish_group_in_scope(group):
-                        return False
-                    if answer and self.publish_executor.execute(question, answer):
-                        filled += 1
+        fill_status, fill_value = self._publish_fill_group(
+            group, questions, group_type, direction, answer_index, key)
+        if fill_status == "stop":
+            return False
+        if fill_status == "skipped_no_ai":
+            return 'skipped_no_ai'
+        filled = fill_value
         print(f"    本组填写 {filled}/{len(questions)} 题")
 
         if filled != len(questions):

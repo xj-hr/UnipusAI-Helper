@@ -468,6 +468,122 @@ class AccuracyController:
             )
         return outputs, changed_units
 
+    def _inspect_match_item(self, q, answer, q_name):
+        """题型分支（从 _inspect_item 抽出）：_inspect_match_item。"""
+        inputs = list(getattr(q, "inputs", None) or [])
+        blanks = list(getattr(q, "banked_blanks", None) or [])
+        total = len(inputs) or len(blanks)
+        if total <= 0:
+            return None
+        if q_name == "MATCHING":
+            pool = [
+                str(getattr(opt, "letter", "")).upper()
+                for opt in (getattr(q, "options", None) or [])
+                if getattr(opt, "letter", "")
+            ] or [str(x).upper() for x in (getattr(q, "banked_options", None) or [])] or list("ABCDEF")
+        else:
+            pool = [str(x).upper() for x in (getattr(q, "banked_options", None) or [])] or list("ABCDEFGHIJKLMNO")
+        if len(pool) < 2:
+            return None
+        letters = _parse_numbered_letters(answer, total, pool)
+        if not any(letters):
+            return None
+        perturbable = [i for i, val in enumerate(letters) if val]
+        return {
+            "kind": "letter_blanks",
+            "pool": pool,
+            "values": letters,
+            "perturbable": perturbable,
+        }
+
+    def _inspect_link_item(self, q, answer, q_name):
+        """题型分支（从 _inspect_item 抽出）：_inspect_link_item。"""
+        link_items = list(getattr(q, "link_items", None) or [])
+        prompts = [item for item in link_items if item.get("side") == "right"]
+        options = [item for item in link_items if item.get("side") == "left"]
+        if len(prompts) < 1 or len(options) < 2:
+            return None
+        pairs = _parse_link_pairs(answer, len(prompts), len(options))
+        if not pairs:
+            return None
+        return {
+            "kind": "link_match",
+            "pairs": pairs,
+            "option_count": len(options),
+            "perturbable": list(range(len(pairs))),
+        }
+
+    def _inspect_dropdown_item(self, q, answer, q_name):
+        """题型分支（从 _inspect_item 抽出）：_inspect_dropdown_item。"""
+        blanks = list(getattr(q, "banked_blanks", None) or [])
+        count = len(blanks) or int(getattr(q, "answer_count", 0) or 0)
+        if count <= 0:
+            return None
+        values = _parse_banked_values(answer, count)
+        if len(values) != count or not any(values):
+            return None
+        global_pool = [
+            str(opt).strip()
+            for opt in (getattr(q, "banked_options", None) or [])
+            if str(opt).strip()
+        ]
+        pools: List[List[str]] = []
+        perturbable: List[int] = []
+        for idx in range(count):
+            b_opts = (
+                [str(o).strip() for o in (blanks[idx].get("options") or []) if str(o).strip()]
+                if idx < len(blanks) and isinstance(blanks[idx], dict)
+                else []
+            )
+            pool = b_opts or global_pool
+            pools.append(pool)
+            val = values[idx].strip()
+            if val and any(opt.lower() != val.lower() for opt in pool):
+                perturbable.append(idx)
+        if not perturbable:
+            return None
+        return {
+            "kind": "dropdown",
+            "values": values,
+            "pools": pools,
+            "perturbable": perturbable,
+        }
+
+    def _inspect_fill_item(self, q, answer, q_name):
+        """题型分支（从 _inspect_item 抽出）：_inspect_fill_item。"""
+        blanks = list(getattr(q, "banked_blanks", None) or [])
+        count = (
+            len(blanks)
+            if q_name == "BANKED_CLOZE" and blanks
+            else int(getattr(q, "answer_count", 0) or 0) or len(blanks)
+        )
+        if count <= 0:
+            return None
+        values = _parse_banked_values(answer, count)
+        if len(values) != count or not any(values):
+            return None
+        hints = [
+            str(blanks[i].get("hint") or "").strip()
+            if i < len(blanks) and isinstance(blanks[i], dict)
+            else ""
+            for i in range(count)
+        ]
+        pool = [
+            str(opt).strip()
+            for opt in (getattr(q, "banked_options", None) or [])
+            if str(opt).strip()
+        ]
+        perturbable = [i for i, val in enumerate(values) if val.strip()]
+        if not perturbable:
+            return None
+        return {
+            "kind": "text_blanks",
+            "values": values,
+            "hints": hints,
+            "pool": pool,
+            "perturbable": perturbable,
+        }
+
     def _inspect_item(self, q: Any, answer: str) -> Optional[Dict[str, Any]]:
         if not answer or not str(answer).strip():
             return None
@@ -539,116 +655,16 @@ class AccuracyController:
             }
 
         if q_name in ("MATCHING", "PARAGRAPH_MATCH"):
-            inputs = list(getattr(q, "inputs", None) or [])
-            blanks = list(getattr(q, "banked_blanks", None) or [])
-            total = len(inputs) or len(blanks)
-            if total <= 0:
-                return None
-            if q_name == "MATCHING":
-                pool = [
-                    str(getattr(opt, "letter", "")).upper()
-                    for opt in (getattr(q, "options", None) or [])
-                    if getattr(opt, "letter", "")
-                ] or [str(x).upper() for x in (getattr(q, "banked_options", None) or [])] or list("ABCDEF")
-            else:
-                pool = [str(x).upper() for x in (getattr(q, "banked_options", None) or [])] or list("ABCDEFGHIJKLMNO")
-            if len(pool) < 2:
-                return None
-            letters = _parse_numbered_letters(answer, total, pool)
-            if not any(letters):
-                return None
-            perturbable = [i for i, val in enumerate(letters) if val]
-            return {
-                "kind": "letter_blanks",
-                "pool": pool,
-                "values": letters,
-                "perturbable": perturbable,
-            }
+            return self._inspect_match_item(q, answer, q_name)
 
         if q_name == "LINK_MATCH":
-            link_items = list(getattr(q, "link_items", None) or [])
-            prompts = [item for item in link_items if item.get("side") == "right"]
-            options = [item for item in link_items if item.get("side") == "left"]
-            if len(prompts) < 1 or len(options) < 2:
-                return None
-            pairs = _parse_link_pairs(answer, len(prompts), len(options))
-            if not pairs:
-                return None
-            return {
-                "kind": "link_match",
-                "pairs": pairs,
-                "option_count": len(options),
-                "perturbable": list(range(len(pairs))),
-            }
+            return self._inspect_link_item(q, answer, q_name)
 
         if q_name == "DROPDOWN_SELECT":
-            blanks = list(getattr(q, "banked_blanks", None) or [])
-            count = len(blanks) or int(getattr(q, "answer_count", 0) or 0)
-            if count <= 0:
-                return None
-            values = _parse_banked_values(answer, count)
-            if len(values) != count or not any(values):
-                return None
-            global_pool = [
-                str(opt).strip()
-                for opt in (getattr(q, "banked_options", None) or [])
-                if str(opt).strip()
-            ]
-            pools: List[List[str]] = []
-            perturbable: List[int] = []
-            for idx in range(count):
-                b_opts = (
-                    [str(o).strip() for o in (blanks[idx].get("options") or []) if str(o).strip()]
-                    if idx < len(blanks) and isinstance(blanks[idx], dict)
-                    else []
-                )
-                pool = b_opts or global_pool
-                pools.append(pool)
-                val = values[idx].strip()
-                if val and any(opt.lower() != val.lower() for opt in pool):
-                    perturbable.append(idx)
-            if not perturbable:
-                return None
-            return {
-                "kind": "dropdown",
-                "values": values,
-                "pools": pools,
-                "perturbable": perturbable,
-            }
+            return self._inspect_dropdown_item(q, answer, q_name)
 
         if q_name in ("BANKED_CLOZE", "FILL_IN", "LISTENING_FILL_IN"):
-            blanks = list(getattr(q, "banked_blanks", None) or [])
-            count = (
-                len(blanks)
-                if q_name == "BANKED_CLOZE" and blanks
-                else int(getattr(q, "answer_count", 0) or 0) or len(blanks)
-            )
-            if count <= 0:
-                return None
-            values = _parse_banked_values(answer, count)
-            if len(values) != count or not any(values):
-                return None
-            hints = [
-                str(blanks[i].get("hint") or "").strip()
-                if i < len(blanks) and isinstance(blanks[i], dict)
-                else ""
-                for i in range(count)
-            ]
-            pool = [
-                str(opt).strip()
-                for opt in (getattr(q, "banked_options", None) or [])
-                if str(opt).strip()
-            ]
-            perturbable = [i for i, val in enumerate(values) if val.strip()]
-            if not perturbable:
-                return None
-            return {
-                "kind": "text_blanks",
-                "values": values,
-                "hints": hints,
-                "pool": pool,
-                "perturbable": perturbable,
-            }
+            return self._inspect_fill_item(q, answer, q_name)
 
         return None
 

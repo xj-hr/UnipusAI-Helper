@@ -116,6 +116,9 @@ jobs:
       - name: 普通题作答基线测试
         run: python tests/test_normal_questions.py
 
+      - name: 题型分支测试
+        run: python tests/test_inspect_item.py
+
       - name: 页面解析基线（需要 Edge，缺失自动跳过）
         run: python tests/test_page_parse_baseline.py
 

@@ -15,21 +15,10 @@ config.real.json
 config.test.json
 config-backups/
 .vscode/
-# 测试脚本只在本地跑，不进版本库
-test_*.py
-tests/
-# 例外：刷时长模块的离线测试随功能一起入库（上游同步时若冲突，保留本例外即可）
-!tests/
-!tests/test_time_brushing.py
-!tests/test_time_brushing_controller.js
-!tests/test_swallow.py
-!tests/test_page_parse_baseline.py
-!tests/test_special_questions.py
-!tests/test_next_question.py
-!tests/test_record_answering.py
-!tests/test_normal_questions.py
-!tests/fixtures/
-!tests/fixtures/*.html
+# 测试默认入库（D-10）：正式用例放 tests/ 直接提交；只忽略本地临时脚本
+tests/local_*.py
+tests/scratch_*.py
+tests/local_*.js
 .pytest_cache/
 # 本地排查产物（截图、真机扫描快照、探针脚本）
 output/
