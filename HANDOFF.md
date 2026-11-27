@@ -48,6 +48,7 @@
 | 2026-11-27 | CI 首次全绿：run `45878270277`（2m26s，static/tests/js 三 job 通过） | `2303e27` |
 | 2026-11-27 | `fork/main` 补齐 lock/tests/assets/模块，main 分支 run `45879373438` 三 job 全绿 | `f54d14a` |
 | 2026-11-27 | 低风险缺陷修复：QML Shortcut 警告、`shell=True`、启动脚本示例 | `889feff` / `f368033` / `3f8732a` |
+| 2026-11-27 | 刷时长参数接入配置面板（启用/层级/间隔/范围/循环） | `b51d032` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
@@ -64,7 +65,7 @@
 | PySide6 + QML 界面 | 可启动（离屏实测），本地依赖 `PySide6-Essentials 6.12.0` |
 | 刷时长：页面内控制器 + Python 宿主 | 代码完整、离线测试通过；**未接真机验证** |
 | 刷时长：界面入口与模式互斥 | 已接通（`Main.qml` → `NativeBridge` → `WorkbenchController` → `UCampusBot`） |
-| 刷时长：参数可视化配置 | **没有**，只能改 `config.json` 的 `time_brushing` 段 |
+| 刷时长：参数可视化配置 | **已有**：配置面板「刷时长」卡片可改启用/层级/间隔/范围/循环，保存后写回 `time_brushing` |
 | CI | **已跑通** `.github/workflows/ci.yml`（static / tests / js），fork 上 run `45878270277` 三 job 全绿，2m26s |
 
 ---
@@ -74,7 +75,6 @@
 | 优先级 | 事项 | 具体下一步 | 完成判据 | 阻塞 |
 |---|---|---|---|---|
 | P0 | 刷时长真机验收 | 桌面会话执行 `启动.cmd` → 登录 → 点「刷时长」→ 观察日志出现 `[页面]` 节次推进 | 日志有连续节次切换、按钮变「停止刷时长」、停止后能答题 | 需桌面环境（离屏会 `tab crashed`） |
-| P1 | 刷时长参数进 QML 配置面板 | `ConfigEditor.qml` 加分组 + `ConfigEditor` Qt 侧读写 `time_brushing` | 改间隔/范围后重启生效 | 无 |
 | P1 | 探针脚本迁移 | `archive-s0-s1-20261127:scripts/{probe_time_brushing,brush_pilot_3min}.py` 适配新 bot API 后放回 `scripts/` | 能跑通一次普查 | 依赖旧 `build_time_brushing_runner` 签名（已加 `manual` 参数） |
 | P2 | CI 覆盖扩展 | 新增测试套件（如探针迁移后）时同步加 job | 新套件纳入流水线 | 需先有测试文件 |
 | P2 | 版本号策略 | 等上游发版后跟随递增；**不要**再自定 `v3.6.0` 这类低于上游的号 | `APP_VERSION` 与 tag 一致且不低于上游 | 无 |
