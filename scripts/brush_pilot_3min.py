@@ -210,6 +210,11 @@ def main():
         tap = driver.execute_script(CLICK_TAP_JS)
         add(f"点击记录器：{tap}")
 
+        levels = settings.as_controller_options()["levels"]
+        state_js = build_page_state_script(levels)
+        # 注入前的页面标识：用于判断「归位」是否已经生效（见下方的等待循环）
+        pre_key = page_key(driver.execute_script(state_js) or {})
+
         runner = tb.TimeBrushingRunner(
             driver, settings=settings, log=lambda msg: add("  [runner] " + str(msg)),
             guard=tb.ModeGuard(), poll_interval=20.0,
@@ -220,8 +225,14 @@ def main():
             report["errors"].append("runner-start-failed")
             return _finish(report, lines, logs_dir, stamp)
 
-        levels = settings.as_controller_options()["levels"]
-        state_js = build_page_state_script(levels)
+        # 归位点击后 DOM 需要一次渲染才更新：等到页面标识真正变化再建立首条记录，
+        # 否则报告第 1 页会记成范围外的旧页面（2026-11-27 实测踩到）
+        align_deadline = time.time() + 8.0
+        while time.time() < align_deadline:
+            probe = driver.execute_script(state_js) or {}
+            if page_key(probe) != pre_key:
+                break
+            time.sleep(0.5)
 
         t0 = time.time()
         prev_key = None
