@@ -130,6 +130,7 @@ node tests/test_time_brushing_controller.js                                     
 | 2026-11-27 00:42 | 控制器接线 | 假 bot + 假 runner | 启动/重复启动被拒/停止/答题被互斥拦截，均符合预期 |
 | 2026-11-27 00:42 | GUI 主循环 | 离屏 `mainloop(close_after=2500)` | 正常退出；仅 `ConfigEditor.qml` 既有 Shortcut 警告 |
 | 2026-11-27 00:38 | 真机启动 | 离屏直跑 80s | GUI 与登录页正常，约 70s 后 Edge `tab crashed`，**登录未完成** |
+| 2026-11-27 16:2x | 答题真机采样 | 真实登录 → 扫描 → 逐任务解析（提交被拦截） | 2 个任务均为材料页（音频 170.2s / 视频阅读），无题目；样本 `logs/samples/s01~s03*.html`（本地，gitignore） |
 
 ---
 
