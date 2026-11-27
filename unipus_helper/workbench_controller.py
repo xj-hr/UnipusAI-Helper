@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .swallow import log_swallowed
+from .swallow import drain_alerts, log_swallowed
 
 import copy
 import json
@@ -47,6 +47,7 @@ class WorkbenchController(CourseCatalogMixin):
         self._tasks = []
         self._selected = set()
         self._logs = []
+        self._degraded = []
         self._log_id = 0
         self._ready = False
         self._operation = None
@@ -169,6 +170,22 @@ class WorkbenchController(CourseCatalogMixin):
                 continue
             self._add_log(message, log_level(message))
 
+    def _note_alerts(self):
+        """把「同一位置反复被忽略」的异常转成可见状态：日志 + snapshot.degraded。
+
+        这是 D-01 的传导出口：`log_swallowed()` 只负责记，这里负责让失败影响用户可见的状态。
+        """
+        alerts = drain_alerts()
+        if not alerts:
+            return
+        for alert in alerts:
+            entry = {"context": alert.context, "count": alert.count,
+                     "type": alert.exc_type, "message": alert.message[:200]}
+            with self._lock:
+                self._degraded.append(entry)
+                self._degraded = self._degraded[-20:]
+            self._add_log(f"异常反复被忽略：{alert.context}（{alert.count} 次，{alert.exc_type}）", "warn")
+
     def snapshot(self):
         with self._lock:
             tasks = [{"id": t["id"], "title": t.get("l1_title") or t.get("display", ""),
@@ -186,6 +203,7 @@ class WorkbenchController(CourseCatalogMixin):
                 "version": self._globals.get("APP_VERSION", "3.9.18"),
                 "ready": self._ready, "busy": self._operation is not None, "operation": self._operation,
                 "brushing": self._brushing,
+                "degraded": self._degraded, "degradedCount": len(self._degraded),
                 "status": self._status, "error": self._error,
                 "excludeUngraded": self._exclude_ungraded, "debug": bool(self._globals.get("DEBUG_MODE")),
                 "tasks": tasks, "logs": self._logs, "account": account,
@@ -301,6 +319,7 @@ class WorkbenchController(CourseCatalogMixin):
         finally:
             with self._lock:
                 self._operation = None
+            self._note_alerts()
 
     def _task_done(self, task):
         with self._lock:
@@ -367,6 +386,7 @@ class WorkbenchController(CourseCatalogMixin):
                 self._operation = None
                 if self._status == "正在刷时长":
                     self._status = "就绪"
+            self._note_alerts()
 
         self._worker = threading.Thread(target=run, daemon=True, name="course-brushing")
         self._worker.start()

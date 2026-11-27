@@ -101,6 +101,9 @@ jobs:
       - name: 宿主逻辑测试
         run: python tests/test_time_brushing.py
 
+      - name: 静默异常留痕测试
+        run: python tests/test_swallow.py
+
       - name: 上传失败日志
         if: failure()
         uses: actions/upload-artifact@v4
