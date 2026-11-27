@@ -11526,6 +11526,51 @@ class AISolver:
         )
         return normal_questions, skipped_records, active_records, total_questions, all_self_submitting, skip_mode
 
+    def _handle_special_questions(self, questions, content_hash):
+        """处理闪卡 / 视频 / 音频 / 自检 / 讨论区等「非作答」内容。
+
+        D-03 阶段拆分之二。原代码直接 `return True/False` 跳转，抽离后改为状态元组，
+        由调用方决定外层返回值，语义保持一致：
+          ("stop", None)   → 外层 return False
+          ("done", None)   → 外层 return True（本页已在内部处理完并登记 hash）
+          ("continue", (special_handled, self_check_handled)) → 继续正常作答流程
+        """
+        special_handled = False
+        self_check_handled = False
+        for q in questions:
+            if self._should_stop():
+                return "stop", None
+            for handler in self.content_handlers:
+                if self._should_stop():
+                    return "stop", None
+                if handler.can_handle(q):
+                    if q.q_type == QuestionType.DISCUSSION_BOARD and not self._ai_available():
+                        print("    讨论区发帖需要 AI 作答，但未配置 AI 接口，跳过该任务")
+                        self._last_tab_outcome = 'skipped_no_ai'
+                        return "stop", None
+                    print(f"     使用 {handler.__class__.__name__} 处理")
+                    handled = handler.handle(q)
+                    if not handled or self._should_stop():
+                        return "stop", None
+                    if q.q_type == QuestionType.AUDIO:
+                        special_handled = True
+                        break
+                    if self._should_stop():
+                        return "stop", None
+                    special_handled = True
+                    if q.q_type == QuestionType.SELF_CHECK:
+                        self_check_handled = True
+                    if q.q_type in [QuestionType.VOCABULARY_FLASHCARD, QuestionType.VIDEO]:
+                        print(f"    特殊内容处理完成")
+                        self.processed_hashes.add(content_hash)
+                        return "done", None
+                    if q.q_type == QuestionType.DISCUSSION_BOARD:
+                        print(f"    讨论区已处理")
+                        self.processed_hashes.add(content_hash)
+                        return "done", None
+                    break
+        return "continue", (special_handled, self_check_handled)
+
     def _process_current_tab_content(self, chapter_name: str, tab_name: str, l1_idx: int, l2_idx: int,
                                      prefetch: Optional[AnswerPrefetch] = None,
                                      prefetch_signature: str = "",
@@ -11605,40 +11650,12 @@ class AISolver:
 
             last_questions_signature = current_signature
 
-            special_handled = False
-            self_check_handled = False
-            for q in questions:
-                if self._should_stop():
-                    return False
-                for handler in self.content_handlers:
-                    if self._should_stop():
-                        return False
-                    if handler.can_handle(q):
-                        if q.q_type == QuestionType.DISCUSSION_BOARD and not self._ai_available():
-                            print("    讨论区发帖需要 AI 作答，但未配置 AI 接口，跳过该任务")
-                            self._last_tab_outcome = 'skipped_no_ai'
-                            return False
-                        print(f"     使用 {handler.__class__.__name__} 处理")
-                        handled = handler.handle(q)
-                        if not handled or self._should_stop():
-                            return False
-                        if q.q_type == QuestionType.AUDIO:
-                            special_handled = True
-                            break
-                        if self._should_stop():
-                            return False
-                        special_handled = True
-                        if q.q_type == QuestionType.SELF_CHECK:
-                            self_check_handled = True
-                        if q.q_type in [QuestionType.VOCABULARY_FLASHCARD, QuestionType.VIDEO]:
-                            print(f"    特殊内容处理完成")
-                            self.processed_hashes.add(content_hash)
-                            return True
-                        if q.q_type == QuestionType.DISCUSSION_BOARD:
-                            print(f"    讨论区已处理")
-                            self.processed_hashes.add(content_hash)
-                            return True
-                        break
+            special_action, special_payload = self._handle_special_questions(questions, content_hash)
+            if special_action == "stop":
+                return False
+            if special_action == "done":
+                return True
+            special_handled, self_check_handled = special_payload
 
             normal_questions, skipped_records, active_records, total_questions, \
                 all_self_submitting, skip_mode = self._split_record_questions(questions)
