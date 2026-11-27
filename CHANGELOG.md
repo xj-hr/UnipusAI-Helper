@@ -15,6 +15,7 @@
 - **静默异常留痕**：新增 `unipus_helper/swallow.py`，176 处「只 `pass`/`continue`」的 except 分支插入 `log_swallowed()`；默认 DEBUG 记录位置与异常类型，同一位置第 20 次升级为 WARNING，控制流不变。
 - **异常热点传导**：`drain_alerts()` / `hotspots()` 供上层消费，`log_swallowed()` 跨阈值返回 True；工作台把告警写入界面日志（warn 级）并在 `snapshot.degraded` 暴露，配套 `tests/test_swallow.py`（6 项）已纳入 CI。
 - **页面解析基线**：`tests/test_page_parse_baseline.py` 用无头 Edge 加载页面（合成页 `tests/fixtures/choice_page_min.html` 与真实样本），断言题数/题型/选项；无浏览器环境自动跳过。
+- **答题主流程拆分（第三步）**：抽出 `_advance_to_next_question()`（点击下一题 / 等待内容变化 / 页数上限），函数 407 → 391 行；配 6 项单测并接入 CI。
 - **答题主流程拆分（第二步）**：抽出 `_handle_special_questions()`（闪卡/视频/音频/自检/讨论区分发），函数 435 → 407 行；配 7 项离线单测并接入 CI。
 - **答题主流程拆分（第一步）**：从 `_process_current_tab_content` 抽出纯计算的 `_split_record_questions()`（题目分组），函数 455 → 435 行，行为不变；剩余阶段待页面级用例后再拆。
 - **安装程序启动**：`subprocess.Popen` 去掉 `shell=True`，避免路径含空格时的解析问题（台账 D-07）。
