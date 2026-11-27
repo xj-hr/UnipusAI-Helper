@@ -11659,6 +11659,201 @@ class AISolver:
                             if q.q_type not in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
         return "ok", (record_answered, normal_questions, total_questions, prefetch)
 
+    def _answer_normal_questions(self, normal_questions, directions, page_num, record_answered,
+                                    prefetch, prefetch_signature, current_signature,
+                                    total_questions, tab_name, l1_idx, l2_idx):
+        """官方答案 / AI 作答（D-03 阶段拆分之五）。
+
+        返回：
+          ("stop", None) → 外层 return False
+          ("ok", (success_count, normal_questions, prefetch)) → 外层累加计数并继续
+        total_answered 的累加刻意留在调用方，避免把页面级计数耦合进本方法。
+        """
+        print(f"    共 {total_questions} 道题目需要回答")
+        success_count = record_answered
+
+        # 官方答案接口命中时跳过 AI，并接入目标正确率控分（以官方答案为基准）
+        official_answers = None
+        api_provider = getattr(self, 'answer_api', None)
+        if api_provider is not None and getattr(api_provider, 'enabled', False) \
+                and not getattr(api_provider, 'abandoned', False):
+            official_answers = self._answer_api_page_answers(normal_questions)
+        if official_answers is not None:
+            adjusted_official, _ = self._accuracy_controller().apply_to_items(
+                list(zip(normal_questions, official_answers)),
+                enforce_submit_floor=False,
+            )
+            filled_official = 0
+            self.executor._exact_official_mode = True
+            try:
+                for question, answer in zip(normal_questions, adjusted_official):
+                    if self._should_stop():
+                        return "stop", None
+                    if answer and self.executor.execute(question, answer):
+                        filled_official += 1
+            finally:
+                self.executor._exact_official_mode = False
+            if filled_official == len(normal_questions):
+                print(f"    本页 {filled_official} 题已使用官方答案填写，跳过 AI")
+                success_count += filled_official
+                normal_questions = []
+                prefetch = None
+            else:
+                print(f"    官方答案仅写入 {filled_official}/{len(normal_questions)} 题，"
+                      f"本页改回 AI 流程")
+
+        # 仅在未命中官方答案、确实要走 AI 流程时，才补抓隔壁原文 / 词汇表 / 音视频转写
+        if normal_questions:
+            if not self._ai_available():
+                print("    本页未能通过官方答案完成且未配置 AI 接口，跳过该任务")
+                self._last_tab_outcome = 'skipped_no_ai'
+                return "stop", None
+            dom_refreshed = False
+            if self._ensure_reading_context_for_ai():
+                dom_refreshed = True
+            if self._should_stop():
+                return "stop", None
+            if page_num == 1 and not len(self._vocab()) and self._needs_vocabulary(normal_questions):
+                switched = self._harvest_from_vocabulary_tab()
+                if switched is None:
+                    return "stop", None
+                if switched:
+                    dom_refreshed = True
+            if dom_refreshed:
+                questions, directions = self.parser.parse_all()
+                if self.parser.incomplete:
+                    print("    本页有交互题未能解析，停止当前任务")
+                    return "stop", None
+                if self._should_stop():
+                    return "stop", None
+                normal_questions = [q for q in questions if q.q_type not in [
+                    QuestionType.VOCABULARY_FLASHCARD,
+                    QuestionType.VIDEO,
+                    QuestionType.AUDIO,
+                    QuestionType.SELF_CHECK,
+                    QuestionType.DISCUSSION_BOARD,
+                    QuestionType.RECORD,
+                    QuestionType.ORAL_ALOUD,
+                ]]
+                if prefetch is not None:
+                    print("    上下文页面切换后，放弃预取答案")
+                    prefetch = None
+            if self._has_video_on_page():
+                if not self._preprocess_video_if_needed(tab_name, l1_idx, l2_idx,
+                                                       skip_transcription=False):
+                    return "stop", None
+                if self._should_stop():
+                    return "stop", None
+            if self._has_audio_on_page():
+                if not self._preprocess_audio_if_needed(tab_name, l1_idx, l2_idx,
+                                                       skip_transcription=False):
+                    return "stop", None
+                if self._should_stop():
+                    return "stop", None
+            fallback_passage = self._extract_passage()
+            if fallback_passage:
+                self.ai_client.add_passage_if_new(fallback_passage)
+
+        large_fills = [q for q in normal_questions
+                       if q.q_type in (QuestionType.FILL_IN, QuestionType.BANKED_CLOZE)
+                       and len(q.inputs) > 8
+                       and not is_expression_bank_question(q)]
+        for q in large_fills:
+            if self._should_stop():
+                return "stop", None
+            if self._answer_chunked_fill(q, directions):
+                success_count += 1
+        normal_questions = [q for q in normal_questions if q not in large_fills]
+
+        ai_response = None
+        used_prefetch = (prefetch is not None and page_num == 1
+                         and current_signature == prefetch_signature
+                         and not self._retry_hint
+                         and prefetch.materials == tuple(
+                             (m['role'], m['content']) for m in self.ai_client.material_messages))
+        if used_prefetch:
+            print(f"    等待播放期间的 AI 预取答案（已运行 {prefetch.elapsed:.1f}s）...")
+            ai_response = prefetch.wait(timeout=180)
+            if ai_response:
+                print(f"    预取答案已就绪（总耗时 {prefetch.elapsed:.1f}s）")
+            else:
+                print("    预取未返回，改为同步请求")
+        if not ai_response:
+            prompt = self.prompt_builder.build(normal_questions, directions) if normal_questions else ""
+            if prompt and self._retry_hint:
+                prompt += "\n\n【平台答案解析】\n" + self._retry_hint[:2000]
+            if self._should_stop():
+                return "stop", None
+            shot = self._question_screenshot(normal_questions)
+            ai_response = self.ai_client.ask(
+                prompt, stop_requested=self.stop_requested, screenshot=shot,
+                require_image=self._requires_image_context(normal_questions)
+            ) if normal_questions else None
+        if self._should_stop():
+            return "stop", None
+        if ai_response:
+            failed_questions = []
+            prepared_items = []
+
+            for q in normal_questions:
+                if self._should_stop():
+                    return "stop", None
+                if q.q_type in [QuestionType.SINGLE_CHOICE, QuestionType.LISTENING_CHOICE,
+                                QuestionType.VIDEO_CHOICE, QuestionType.MULTIPLE_CHOICE,
+                                QuestionType.VOCABULARY_TEST]:
+                    ans = self._extract_single_answer(ai_response, q.number)
+                elif q.q_type in [QuestionType.BANKED_CLOZE, QuestionType.FILL_IN,
+                                  QuestionType.DROPDOWN_SELECT]:
+                    ans = ai_response
+                elif q.q_type == QuestionType.SORTING and len(normal_questions) > 1:
+                    ans = self._extract_single_answer(ai_response, q.number)
+                else:
+                    ans = ai_response
+
+                if ans and q.q_type == QuestionType.SORTING:
+                    letters = [opt.letter for opt in q.options]
+                    order = self.executor._parse_sorting_order(ans, letters)
+                    corrected = self._reorder_sorting_by_transcript(q, order)
+                    if corrected and corrected != order:
+                        ans = ' '.join(corrected)
+                prepared_items.append((q, ans or ""))
+
+            adjusted_answers, _ = self._accuracy_controller().apply_to_items(
+                prepared_items, enforce_submit_floor=False
+            )
+
+            for (q, _), ans in zip(prepared_items, adjusted_answers):
+                if self._should_stop():
+                    return "stop", None
+                if ans:
+                    if self.executor.execute(q, ans):
+                        success_count += 1
+                    else:
+                        failed_questions.append(q)
+                else:
+                    print(f"    题目 {q.number} 无答案")
+                    failed_questions.append(q)
+
+            if failed_questions:
+                repaired = self._repair_questions(failed_questions, directions)
+                success_count += repaired
+                print(f"    二次修正成功 {repaired}/{len(failed_questions)} 题")
+
+            print(f"    本页成功填写 {success_count}/{total_questions} 题")
+            if success_count != total_questions:
+                print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
+                return "stop", None
+        elif normal_questions:
+            print("    AI 未返回答案，停止当前任务")
+            return "stop", None
+        else:
+            print(f"    本页成功填写 {success_count}/{total_questions} 题")
+            if success_count != total_questions:
+                print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
+                return "stop", None
+
+        return "ok", (success_count, normal_questions, prefetch)
+
     def _process_current_tab_content(self, chapter_name: str, tab_name: str, l1_idx: int, l2_idx: int,
                                      prefetch: Optional[AnswerPrefetch] = None,
                                      prefetch_signature: str = "",
@@ -11763,191 +11958,14 @@ class AISolver:
                     print(f"    本页成功填写 {record_answered}/{total_questions} 题")
 
             if normal_questions:
-                print(f"    共 {total_questions} 道题目需要回答")
-                success_count = record_answered
-
-                # 官方答案接口命中时跳过 AI，并接入目标正确率控分（以官方答案为基准）
-                official_answers = None
-                api_provider = getattr(self, 'answer_api', None)
-                if api_provider is not None and getattr(api_provider, 'enabled', False) \
-                        and not getattr(api_provider, 'abandoned', False):
-                    official_answers = self._answer_api_page_answers(normal_questions)
-                if official_answers is not None:
-                    adjusted_official, _ = self._accuracy_controller().apply_to_items(
-                        list(zip(normal_questions, official_answers)),
-                        enforce_submit_floor=False,
-                    )
-                    filled_official = 0
-                    self.executor._exact_official_mode = True
-                    try:
-                        for question, answer in zip(normal_questions, adjusted_official):
-                            if self._should_stop():
-                                return False
-                            if answer and self.executor.execute(question, answer):
-                                filled_official += 1
-                    finally:
-                        self.executor._exact_official_mode = False
-                    if filled_official == len(normal_questions):
-                        print(f"    本页 {filled_official} 题已使用官方答案填写，跳过 AI")
-                        success_count += filled_official
-                        normal_questions = []
-                        prefetch = None
-                    else:
-                        print(f"    官方答案仅写入 {filled_official}/{len(normal_questions)} 题，"
-                              f"本页改回 AI 流程")
-
-                # 仅在未命中官方答案、确实要走 AI 流程时，才补抓隔壁原文 / 词汇表 / 音视频转写
-                if normal_questions:
-                    if not self._ai_available():
-                        print("    本页未能通过官方答案完成且未配置 AI 接口，跳过该任务")
-                        self._last_tab_outcome = 'skipped_no_ai'
-                        return False
-                    dom_refreshed = False
-                    if self._ensure_reading_context_for_ai():
-                        dom_refreshed = True
-                    if self._should_stop():
-                        return False
-                    if page_num == 1 and not len(self._vocab()) and self._needs_vocabulary(normal_questions):
-                        switched = self._harvest_from_vocabulary_tab()
-                        if switched is None:
-                            return False
-                        if switched:
-                            dom_refreshed = True
-                    if dom_refreshed:
-                        questions, directions = self.parser.parse_all()
-                        if self.parser.incomplete:
-                            print("    本页有交互题未能解析，停止当前任务")
-                            return False
-                        if self._should_stop():
-                            return False
-                        normal_questions = [q for q in questions if q.q_type not in [
-                            QuestionType.VOCABULARY_FLASHCARD,
-                            QuestionType.VIDEO,
-                            QuestionType.AUDIO,
-                            QuestionType.SELF_CHECK,
-                            QuestionType.DISCUSSION_BOARD,
-                            QuestionType.RECORD,
-                            QuestionType.ORAL_ALOUD,
-                        ]]
-                        if prefetch is not None:
-                            print("    上下文页面切换后，放弃预取答案")
-                            prefetch = None
-                    if self._has_video_on_page():
-                        if not self._preprocess_video_if_needed(tab_name, l1_idx, l2_idx,
-                                                               skip_transcription=False):
-                            return False
-                        if self._should_stop():
-                            return False
-                    if self._has_audio_on_page():
-                        if not self._preprocess_audio_if_needed(tab_name, l1_idx, l2_idx,
-                                                               skip_transcription=False):
-                            return False
-                        if self._should_stop():
-                            return False
-                    fallback_passage = self._extract_passage()
-                    if fallback_passage:
-                        self.ai_client.add_passage_if_new(fallback_passage)
-
-                large_fills = [q for q in normal_questions
-                               if q.q_type in (QuestionType.FILL_IN, QuestionType.BANKED_CLOZE)
-                               and len(q.inputs) > 8
-                               and not is_expression_bank_question(q)]
-                for q in large_fills:
-                    if self._should_stop():
-                        return False
-                    if self._answer_chunked_fill(q, directions):
-                        success_count += 1
-                normal_questions = [q for q in normal_questions if q not in large_fills]
-
-                ai_response = None
-                used_prefetch = (prefetch is not None and page_num == 1
-                                 and current_signature == prefetch_signature
-                                 and not self._retry_hint
-                                 and prefetch.materials == tuple(
-                                     (m['role'], m['content']) for m in self.ai_client.material_messages))
-                if used_prefetch:
-                    print(f"    等待播放期间的 AI 预取答案（已运行 {prefetch.elapsed:.1f}s）...")
-                    ai_response = prefetch.wait(timeout=180)
-                    if ai_response:
-                        print(f"    预取答案已就绪（总耗时 {prefetch.elapsed:.1f}s）")
-                    else:
-                        print("    预取未返回，改为同步请求")
-                if not ai_response:
-                    prompt = self.prompt_builder.build(normal_questions, directions) if normal_questions else ""
-                    if prompt and self._retry_hint:
-                        prompt += "\n\n【平台答案解析】\n" + self._retry_hint[:2000]
-                    if self._should_stop():
-                        return False
-                    shot = self._question_screenshot(normal_questions)
-                    ai_response = self.ai_client.ask(
-                        prompt, stop_requested=self.stop_requested, screenshot=shot,
-                        require_image=self._requires_image_context(normal_questions)
-                    ) if normal_questions else None
-                if self._should_stop():
+                normal_status, normal_result = self._answer_normal_questions(
+                    normal_questions, directions, page_num, record_answered,
+                    prefetch, prefetch_signature, current_signature,
+                    total_questions, tab_name, l1_idx, l2_idx)
+                if normal_status == "stop":
                     return False
-                if ai_response:
-                    failed_questions = []
-                    prepared_items = []
-
-                    for q in normal_questions:
-                        if self._should_stop():
-                            return False
-                        if q.q_type in [QuestionType.SINGLE_CHOICE, QuestionType.LISTENING_CHOICE,
-                                        QuestionType.VIDEO_CHOICE, QuestionType.MULTIPLE_CHOICE,
-                                        QuestionType.VOCABULARY_TEST]:
-                            ans = self._extract_single_answer(ai_response, q.number)
-                        elif q.q_type in [QuestionType.BANKED_CLOZE, QuestionType.FILL_IN,
-                                          QuestionType.DROPDOWN_SELECT]:
-                            ans = ai_response
-                        elif q.q_type == QuestionType.SORTING and len(normal_questions) > 1:
-                            ans = self._extract_single_answer(ai_response, q.number)
-                        else:
-                            ans = ai_response
-
-                        if ans and q.q_type == QuestionType.SORTING:
-                            letters = [opt.letter for opt in q.options]
-                            order = self.executor._parse_sorting_order(ans, letters)
-                            corrected = self._reorder_sorting_by_transcript(q, order)
-                            if corrected and corrected != order:
-                                ans = ' '.join(corrected)
-                        prepared_items.append((q, ans or ""))
-
-                    adjusted_answers, _ = self._accuracy_controller().apply_to_items(
-                        prepared_items, enforce_submit_floor=False
-                    )
-
-                    for (q, _), ans in zip(prepared_items, adjusted_answers):
-                        if self._should_stop():
-                            return False
-                        if ans:
-                            if self.executor.execute(q, ans):
-                                success_count += 1
-                            else:
-                                failed_questions.append(q)
-                        else:
-                            print(f"    题目 {q.number} 无答案")
-                            failed_questions.append(q)
-
-                    if failed_questions:
-                        repaired = self._repair_questions(failed_questions, directions)
-                        success_count += repaired
-                        print(f"    二次修正成功 {repaired}/{len(failed_questions)} 题")
-
-                    total_answered += success_count
-                    print(f"    本页成功填写 {success_count}/{total_questions} 题")
-                    if success_count != total_questions:
-                        print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
-                        return False
-                elif normal_questions:
-                    print("    AI 未返回答案，停止当前任务")
-                    return False
-                else:
-                    total_answered += success_count
-                    print(f"    本页成功填写 {success_count}/{total_questions} 题")
-                    if success_count != total_questions:
-                        print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
-                        return False
-
+                success_count, normal_questions, prefetch = normal_result
+                total_answered += success_count
             if self._should_stop():
                 return False
             if self_check_handled and not normal_questions:

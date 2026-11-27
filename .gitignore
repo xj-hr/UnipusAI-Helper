@@ -27,6 +27,7 @@ tests/
 !tests/test_special_questions.py
 !tests/test_next_question.py
 !tests/test_record_answering.py
+!tests/test_normal_questions.py
 !tests/fixtures/
 !tests/fixtures/*.html
 .pytest_cache/
