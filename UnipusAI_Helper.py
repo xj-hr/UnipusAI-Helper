@@ -7,7 +7,7 @@ except ImportError:
         @staticmethod
         def MessageBeep(*args, **kwargs):
             try:
-                print('\a', end='', flush=True)
+                log_print('\a', end='', flush=True)
             except Exception:
                 log_swallowed("_MockWinsound.MessageBeep:12")
     winsound = _MockWinsound()
@@ -66,7 +66,7 @@ def ensure_writable_temp_dir() -> str:
         except Exception:
             log_swallowed("ensure_writable_temp_dir:67")
         if original_temp and os.path.abspath(original_temp) != os.path.abspath(candidate):
-            print(f" 系统临时目录不可写，已切换到: {candidate}")
+            log_print(f" 系统临时目录不可写，已切换到: {candidate}")
         return candidate
     return ''
 
@@ -107,6 +107,32 @@ DEFAULT_LOGIN_URL = "https://uai.unipus.cn/sso/index.html?service=https%3A%2F%2F
 UCLOUD_HOME_URL = "https://ucloud.unipus.cn/home"
 
 logger = logging.getLogger('UCampusBot')
+
+#: 保留内建 print：log_print 在日志系统就绪前回退时使用（避免自递归）
+_builtin_print = print
+
+
+def log_print(*args, sep=" ", end="\n", level=logging.INFO, flush=False):
+    """替代 print（缺陷台账 D-04）：写入 logger（显式级别）+ GUI 日志队列。
+
+    背景：原代码 547 处 print 依赖 `PrintRedirector` 把 stdout 转发给 logger，级别靠
+    关键字猜（含 Error/Traceback 判 error，含 Warning 判 warning），分类不可控。
+
+    本函数直接产出结构化日志，输出效果与 print 一致（console handler 负责显示），
+    且不再走 stdout，避免被 PrintRedirector 二次记录造成重复行。
+    启动早期 `setup_logging()` 尚未执行（logger 无 handler）时回退到 print，保证不丢信息。
+    """
+    text = sep.join(str(arg) for arg in args)
+    if not logger.handlers:
+        _builtin_print(text, end=end, flush=flush)
+        return
+    logger.log(level, text, stacklevel=2)  # 让日志记录调用方函数名与行号，而不是 log_print 自己
+    try:
+        stripped = text.strip()
+        if stripped:
+            gui_log_queue.put(stripped)
+    except Exception:
+        pass
 
 
 def setup_logging():
@@ -751,7 +777,7 @@ class WebDriverHelper:
                     return elements
             except Exception as e:
                 error_msg = str(e)
-                print(f"操作失败: {error_msg[:50]}")
+                log_print(f"操作失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
                 continue
         return []
@@ -803,7 +829,7 @@ class WebDriverHelper:
                     interruptible_sleep(0.5)
                     continue
                 error_msg = str(e)
-                print(f"操作失败: {error_msg[:50]}")
+                log_print(f"操作失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
         return False
 
@@ -834,14 +860,14 @@ class OpenAICompatibleClient:
 
     def start_new_chapter(self, chapter_id: str):
         self.current_chapter_id = chapter_id
-        print(f" 记录章节: {chapter_id[:50]}")
+        log_print(f" 记录章节: {chapter_id[:50]}")
 
     def force_reset(self, chapter_id: str):
         self.conversation_history = []
         self.material_messages = []
         self.current_chapter_id = chapter_id
         self.accumulated_passages = set()
-        print(f" 强制重置章节: {chapter_id[:50]}")
+        log_print(f" 强制重置章节: {chapter_id[:50]}")
 
     def add_passage_if_new(self, passage: str) -> bool:
         return self._add_context_if_new(passage, "阅读材料", "材料")
@@ -859,7 +885,7 @@ class OpenAICompatibleClient:
         passage_hash = hashlib.md5(content.encode()).hexdigest()[:16]
 
         if passage_hash in self.accumulated_passages:
-            print(f"    {ack_label}已存在，跳过")
+            log_print(f"    {ack_label}已存在，跳过")
             return False
 
         self.accumulated_passages.add(passage_hash)
@@ -875,7 +901,7 @@ class OpenAICompatibleClient:
             "content": f"我已理解{ack_label} {material_index}。请提出问题。"
         })
 
-        print(f"    新增{ack_label}（{len(content)}字符），当前共{len(self.accumulated_passages)}份上下文")
+        log_print(f"    新增{ack_label}（{len(content)}字符），当前共{len(self.accumulated_passages)}份上下文")
         return True
 
     @staticmethod
@@ -893,12 +919,12 @@ class OpenAICompatibleClient:
             screenshot: Optional[bytes] = None, remember: bool = True,
             require_image: bool = False) -> Optional[str]:
         if not getattr(self, 'enabled', True) or self.client is None:
-            print("    未配置 AI 接口，无法调用大模型作答")
+            log_print("    未配置 AI 接口，无法调用大模型作答")
             return None
         if require_image and not screenshot:
-            print("   需要题目图片上下文但截图不可用，停止作答")
+            log_print("   需要题目图片上下文但截图不可用，停止作答")
             return None
-        print(f"当前ai对话历史共{len(self.conversation_history)}条")
+        log_print(f"当前ai对话历史共{len(self.conversation_history)}条")
         max_tokens = max(self.config.max_tokens, 32768)
         for attempt in range(retry_count):
             if stop_requested is not None and stop_requested.is_set():
@@ -923,22 +949,22 @@ class OpenAICompatibleClient:
                 ]
 
                 if DEBUG_MODE:
-                    print("\n" + "=" * 60)
-                    print(" [DEBUG] API 请求详情")
-                    print(f"   base_url: {self.config.base_url}")
-                    print(f"   model:    {self.config.model}")
-                    print(f"   temperature: {self.config.temperature}")
-                    print(f"   max_tokens:  {max_tokens}")
-                    print(f"   消息条数: {len(messages)}")
+                    log_print("\n" + "=" * 60)
+                    log_print(" [DEBUG] API 请求详情")
+                    log_print(f"   base_url: {self.config.base_url}")
+                    log_print(f"   model:    {self.config.model}")
+                    log_print(f"   temperature: {self.config.temperature}")
+                    log_print(f"   max_tokens:  {max_tokens}")
+                    log_print(f"   消息条数: {len(messages)}")
                     for i, msg in enumerate(messages):
                         role = msg["role"]
                         content = msg["content"]
                         preview = content[:300] + "..." if len(content) > 300 else content
-                        print(f"   [{i}] {role}: {preview}")
-                    print("=" * 60 + "\n")
+                        log_print(f"   [{i}] {role}: {preview}")
+                    log_print("=" * 60 + "\n")
 
                 shot = f"，附截图 {len(screenshot) // 1024} KB" if screenshot else ""
-                print(f"【请求】已向 AI 发送请求（{len(ask_prompt)} 字{shot}，max_tokens={max_tokens}，"
+                log_print(f"【请求】已向 AI 发送请求（{len(ask_prompt)} 字{shot}，max_tokens={max_tokens}，"
                       f"第 {attempt + 1}/{retry_count} 次），等待 {self.config.model} 返回...")
                 request_started = time.time()
 
@@ -957,7 +983,7 @@ class OpenAICompatibleClient:
                         rejects_budget = ('max_tokens' in message or 'max output' in message
                                           or 'too large' in message or 'maximum context' in message)
                         if rejects_budget and request_tokens > 4096:
-                            print(f"    模型不接受 max_tokens={request_tokens}，减半到 {request_tokens // 2} 重试")
+                            log_print(f"    模型不接受 max_tokens={request_tokens}，减半到 {request_tokens // 2} 重试")
                             request_tokens //= 2
                             continue
                         raise
@@ -966,29 +992,29 @@ class OpenAICompatibleClient:
                 elapsed = time.time() - request_started
                 finish_reason = response.choices[0].finish_reason
                 answer = (response.choices[0].message.content or "").strip()
-                print(f"【返回】AI 已返回（耗时 {elapsed:.1f}s，finish_reason={finish_reason}，"
+                log_print(f"【返回】AI 已返回（耗时 {elapsed:.1f}s，finish_reason={finish_reason}，"
                       f"{len(answer)} 字）")
 
                 if DEBUG_MODE:
-                    print("\n" + "=" * 60)
-                    print(" [DEBUG] API 响应详情")
-                    print(f"   model:        {response.model}")
-                    print(f"   finish_reason:{finish_reason}")
-                    print(f"   usage:        {response.usage}")
-                    print(f"   answer:       {answer[:500]}{'...' if len(answer) > 500 else ''}")
-                    print("=" * 60 + "\n")
+                    log_print("\n" + "=" * 60)
+                    log_print(" [DEBUG] API 响应详情")
+                    log_print(f"   model:        {response.model}")
+                    log_print(f"   finish_reason:{finish_reason}")
+                    log_print(f"   usage:        {response.usage}")
+                    log_print(f"   answer:       {answer[:500]}{'...' if len(answer) > 500 else ''}")
+                    log_print("=" * 60 + "\n")
 
                 if not answer:
                     if finish_reason == 'length':
                         if attempt == retry_count - 1:
-                            print("推理耗尽 token，已达到最大重试次数")
+                            log_print("推理耗尽 token，已达到最大重试次数")
                             return None
                         if max_tokens < 32768:
                             max_tokens = min(max_tokens * 2, 32768)
-                        print(f"推理耗尽 token（finish_reason=length），使用 max_tokens="
+                        log_print(f"推理耗尽 token（finish_reason=length），使用 max_tokens="
                               f"{max_tokens} 和简化问法重试")
                         continue
-                    print(f"模型返回空内容（finish_reason={finish_reason}）")
+                    log_print(f"模型返回空内容（finish_reason={finish_reason}）")
                     return None
 
                 if remember:
@@ -997,39 +1023,39 @@ class OpenAICompatibleClient:
 
                     self.conversation_history = self.conversation_history[-20:]
 
-                print(f"AI回答: {answer}")
+                log_print(f"AI回答: {answer}")
                 return answer
 
             except Exception as e:
                 if screenshot is not None and self._is_image_unsupported_error(e):
                     if require_image:
-                        print("   接口无法识别题目图片，停止作答")
+                        log_print("   接口无法识别题目图片，停止作答")
                         return None
                     screenshot = None
-                    print("   接口拒绝图片，改用纯文本重试")
+                    log_print("   接口拒绝图片，改用纯文本重试")
                 if DEBUG_MODE:
                     import traceback
-                    print("\n" + "=" * 60)
-                    print(" [DEBUG] API 调用异常详情")
-                    print(f"   异常类型: {type(e).__name__}")
-                    print(f"   异常信息: {e}")
+                    log_print("\n" + "=" * 60)
+                    log_print(" [DEBUG] API 调用异常详情")
+                    log_print(f"   异常类型: {type(e).__name__}")
+                    log_print(f"   异常信息: {e}")
                     if hasattr(e, 'response'):
                         try:
-                            print(f"   HTTP 状态码: {e.response.status_code}")
-                            print(f"   响应头: {dict(e.response.headers)}")
-                            print(f"   响应体: {e.response.text[:1000]}")
+                            log_print(f"   HTTP 状态码: {e.response.status_code}")
+                            log_print(f"   响应头: {dict(e.response.headers)}")
+                            log_print(f"   响应体: {e.response.text[:1000]}")
                         except Exception:
                             log_swallowed("OpenAICompatibleClient.ask:1021")
                     if hasattr(e, 'body'):
                         try:
-                            print(f"   错误body: {e.body}")
+                            log_print(f"   错误body: {e.body}")
                         except Exception:
                             log_swallowed("OpenAICompatibleClient.ask:1026")
                     if hasattr(e, 'status_code'):
-                        print(f"   status_code: {e.status_code}")
-                    print(f"   完整堆栈:")
+                        log_print(f"   status_code: {e.status_code}")
+                    log_print(f"   完整堆栈:")
                     traceback.print_exc()
-                    print("=" * 60 + "\n")
+                    log_print("=" * 60 + "\n")
 
                 if attempt < retry_count - 1:
                     delay = (2 ** attempt) + random.random()
@@ -1039,7 +1065,7 @@ class OpenAICompatibleClient:
                     else:
                         interruptible_sleep(delay)
                 error_msg = str(e)
-                print(f"AI调用失败: {error_msg[:50]}")
+                log_print(f"AI调用失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
 
         return None
@@ -1197,14 +1223,14 @@ class QuestionParser:
         try:
             return self._parse_all_once()
         except StaleElementReferenceException:
-            print("     页面已更新，重新获取题目")
+            log_print("     页面已更新，重新获取题目")
             return self._parse_all_once()
 
     def _parse_all_once(self) -> Tuple[List[Question], str]:
         self.incomplete = False
         self.non_answer_containers = 0
         if self._is_discussion_board_page():
-            print("     检测到讨论板页面，交给发帖处理器")
+            log_print("     检测到讨论板页面，交给发帖处理器")
             try:
                 element = self.driver.find_element(By.TAG_NAME, 'body')
             except Exception:
@@ -1224,27 +1250,27 @@ class QuestionParser:
         questions = []
         directions = self._extract_directions_from_page()
 
-        print(f"     找到 {len(containers)} 个题目容器")
+        log_print(f"     找到 {len(containers)} 个题目容器")
 
         for idx, container in enumerate(containers, 1):
             try:
                 if not self._is_really_visible(container):
-                    print(f"      容器 {idx} 不可见，跳过")
+                    log_print(f"      容器 {idx} 不可见，跳过")
                     continue
 
                 question = self._parse_single(container, idx, directions)
                 if question:
                     if question.is_interactive():
                         questions.append(question)
-                        print(f"      题目 {idx}: {question.q_type.name} - {question.text[:50]}...")
+                        log_print(f"      题目 {idx}: {question.q_type.name} - {question.text[:50]}...")
                     else:
-                        print(f"      题目 {idx} 非交互类型: {question.q_type.name}")
+                        log_print(f"      题目 {idx} 非交互类型: {question.q_type.name}")
                         if self._has_answer_widgets(container):
                             self.incomplete = True
                         else:
                             self.non_answer_containers += 1
                 else:
-                    print(f"      容器 {idx} 解析为None")
+                    log_print(f"      容器 {idx} 解析为None")
                     if self._has_answer_widgets(container):
                         self.incomplete = True
                     else:
@@ -1254,7 +1280,7 @@ class QuestionParser:
                 raise
             except Exception as e:
                 error_msg = str(e)
-                print(f"       解析容器 {idx} 失败:{error_msg[:50]}")
+                log_print(f"       解析容器 {idx} 失败:{error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
                 if self._has_answer_widgets(container):
                     self.incomplete = True
@@ -1283,18 +1309,18 @@ class QuestionParser:
                     score += 1
 
             if score >= 2:
-                print(f"     讨论板检测得分: {score}/{len(strong_indicators)}")
+                log_print(f"     讨论板检测得分: {score}/{len(strong_indicators)}")
                 return True
             return False
         except Exception as e:
             error_msg = str(e)
-            print(f"操作失败: {error_msg[:50]}")
+            log_print(f"操作失败: {error_msg[:50]}")
             logger.error(f"详细错误: {error_msg}", exc_info=True)
             return False
 
     def _find_containers(self) -> List[Any]:
         if self._is_discussion_board_page():
-            print("     检测到讨论板页面，跳过")
+            log_print("     检测到讨论板页面，跳过")
             return []
 
         role_play = [c for c in self.driver.find_elements(
@@ -1309,7 +1335,7 @@ class QuestionParser:
         except Exception:
             vocab_containers = []
         if vocab_containers:
-            print(f"     找到 {len(vocab_containers)} 个词汇跟读页")
+            log_print(f"     找到 {len(vocab_containers)} 个词汇跟读页")
             return vocab_containers
 
         try:
@@ -1319,7 +1345,7 @@ class QuestionParser:
         except Exception:
             aloud_containers = []
         if aloud_containers:
-            print(f"     找到 {len(aloud_containers)} 个段落朗读题")
+            log_print(f"     找到 {len(aloud_containers)} 个段落朗读题")
             return aloud_containers
 
         try:
@@ -1328,12 +1354,12 @@ class QuestionParser:
         except Exception:
             dub_containers = []
         if dub_containers:
-            print(f"     找到 {len(dub_containers)} 个视频配音题")
+            log_print(f"     找到 {len(dub_containers)} 个视频配音题")
             return dub_containers
 
         record_containers = self._find_record_containers()
         if record_containers:
-            print(f"     找到 {len(record_containers)} 个跟读录音题容器")
+            log_print(f"     找到 {len(record_containers)} 个跟读录音题容器")
             return record_containers
 
         checklist_containers = []
@@ -1349,12 +1375,12 @@ class QuestionParser:
             except Exception:
                 log_swallowed("QuestionParser._find_containers:1349"); continue
         if checklist_containers:
-            print(f"     找到 {len(checklist_containers)} 个自评清单容器")
+            log_print(f"     找到 {len(checklist_containers)} 个自评清单容器")
             return checklist_containers
 
         reading_containers = self._find_reading_question_containers()
         if reading_containers:
-            print(f"     找到 {len(reading_containers)} 道阅读问答题（共享材料）")
+            log_print(f"     找到 {len(reading_containers)} 道阅读问答题（共享材料）")
             return reading_containers
 
         sequence_containers = []
@@ -1365,7 +1391,7 @@ class QuestionParser:
             except Exception:
                 log_swallowed("QuestionParser._find_containers:1365"); continue
         if sequence_containers:
-            print(f"     找到 {len(sequence_containers)} 道排序题")
+            log_print(f"     找到 {len(sequence_containers)} 道排序题")
             return sequence_containers
 
         choice_containers = self.driver.find_elements(
@@ -1385,7 +1411,7 @@ class QuestionParser:
                     log_swallowed("QuestionParser._find_containers:1384")
 
             if reply_containers:
-                print(f"     找到 {len(reply_containers)} 道独立选择题")
+                log_print(f"     找到 {len(reply_containers)} 道独立选择题")
                 return reply_containers
 
         banked_containers = WebDriverHelper.safe_find_elements(
@@ -1400,7 +1426,7 @@ class QuestionParser:
                 valid_banked.append(container)
 
         if valid_banked:
-            print(f"     找到 {len(valid_banked)} 个选词填空容器")
+            log_print(f"     找到 {len(valid_banked)} 个选词填空容器")
             return valid_banked
 
         self_check_containers = []
@@ -1414,7 +1440,7 @@ class QuestionParser:
                 log_swallowed("QuestionParser._find_containers:1413"); continue
 
         if self_check_containers:
-            print(f"     找到 {len(self_check_containers)} 个Self-check词汇勾选容器")
+            log_print(f"     找到 {len(self_check_containers)} 个Self-check词汇勾选容器")
             return self_check_containers
 
         video_containers = WebDriverHelper.safe_find_elements(
@@ -1426,7 +1452,7 @@ class QuestionParser:
                 has_questions = container.find_elements(By.CSS_SELECTOR,
                                                         '.question-common-abs-choice, .question-inputbox, .option, .fe-scoop')
                 if not has_questions:
-                    print(f"     找到纯视频容器")
+                    log_print(f"     找到纯视频容器")
                     return [container]
 
         containers = self.driver.find_elements(By.CSS_SELECTOR, '.layout-container')
@@ -1445,7 +1471,7 @@ class QuestionParser:
                 log_swallowed("QuestionParser._find_containers:1444"); continue
 
         if valid_containers:
-            print(f"     找到 {len(valid_containers)} 个有效题目容器（layout-container）")
+            log_print(f"     找到 {len(valid_containers)} 个有效题目容器（layout-container）")
             return valid_containers
 
         fallback = WebDriverHelper.safe_find_elements(
@@ -1453,7 +1479,7 @@ class QuestionParser:
             ['.layoutBody-container', '.layout-reply-container', '.reply-wrap']
         )
         if fallback:
-            print(f"     备用方案找到 {len(fallback)} 个容器")
+            log_print(f"     备用方案找到 {len(fallback)} 个容器")
             return fallback
 
         reply_fallback = []
@@ -1466,7 +1492,7 @@ class QuestionParser:
             except Exception:
                 log_swallowed("QuestionParser._find_containers:1466"); continue
         if reply_fallback:
-            print(f"     兜底找到 {len(reply_fallback)} 个作答容器")
+            log_print(f"     兜底找到 {len(reply_fallback)} 个作答容器")
             return reply_fallback
 
         return []
@@ -1532,23 +1558,23 @@ class QuestionParser:
         for strategy in self.strategies:
             try:
                 if strategy.can_parse(container, self.driver):
-                    print(f"      使用策略: {strategy.__class__.__name__}")
+                    log_print(f"      使用策略: {strategy.__class__.__name__}")
                     question = strategy.parse(container, self.driver, number, directions)
                     if question:
                         if question.number is None:
                             question.number = number
-                        print(f"      解析成功: {question.q_type.name}")
+                        log_print(f"      解析成功: {question.q_type.name}")
                         return question
                     else:
-                        print(f"      策略返回None")
+                        log_print(f"      策略返回None")
             except StaleElementReferenceException:
                 raise
             except Exception as e:
                 error_msg = str(e)
-                print(f"      策略 {strategy.__class__.__name__} 失败: {error_msg[:50]} ")
+                log_print(f"      策略 {strategy.__class__.__name__} 失败: {error_msg[:50]} ")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
                 continue
-        print(f"      没有匹配的策略")
+        log_print(f"      没有匹配的策略")
         return None
 
 
@@ -1794,7 +1820,7 @@ class BankedClozeStrategy(QuestionParserStrategy):
                 if text and text not in banked_options:
                     banked_options.append(text)
 
-        print(f"      选项池（短语）: {banked_options}")
+        log_print(f"      选项池（短语）: {banked_options}")
 
         inputs = []
         banked_blanks = []
@@ -1834,7 +1860,7 @@ class BankedClozeStrategy(QuestionParserStrategy):
                 'element': scoop
             })
 
-        print(f"      找到 {len(banked_blanks)} 个填空位置")
+        log_print(f"      找到 {len(banked_blanks)} 个填空位置")
 
         material = FillInStrategy._page_material(container, limit=6000)
         question_text = f"选词填空（{len(banked_blanks)}个空）"
@@ -2526,7 +2552,7 @@ class TTSEngine:
         key = hashlib.md5(f"{spoken}|{self.voice}|{self.rate}".encode()).hexdigest()
         cached = self._cache.get(key)
         if cached:
-            print(f"    TTS 复用缓存（{len(spoken.split())} 词）")
+            log_print(f"    TTS 复用缓存（{len(spoken.split())} 词）")
             return cached
 
         errors = []
@@ -2536,7 +2562,7 @@ class TTSEngine:
                 if len(self._cache) >= self.CACHE_LIMIT:
                     self._cache.clear()
                 self._cache[key] = (fmt, data)
-                print(f"    TTS({name}) 合成 {len(spoken.split())} 词 / {len(data)} 字节")
+                log_print(f"    TTS({name}) 合成 {len(spoken.split())} 词 / {len(data)} 字节")
                 return fmt, data
             errors.append(f"{name}: {self.last_error}")
         self.last_error = "; ".join(e for e in errors if e)
@@ -2767,7 +2793,7 @@ class VocabularyReadAloudStrategy(QuestionParserStrategy):
             text += '\n' + definition[:200]
         if directions:
             text = directions.strip() + '\n' + text
-        print(f"    词汇跟读卡片: {word or '(未读到)'} | "
+        log_print(f"    词汇跟读卡片: {word or '(未读到)'} | "
               f"原声 {'有' if url else '无'} | "
               f"进度 {item['vocab_index']}/{item['vocab_total']}")
         return Question(
@@ -3194,7 +3220,7 @@ class TextInputStrategy(QuestionParserStrategy):
 
         except Exception as e:
             error_msg = str(e)
-            print(f"      TextInputStrategy解析失败: {error_msg[:100]}")
+            log_print(f"      TextInputStrategy解析失败: {error_msg[:100]}")
             logger.error(f"详细错误: {error_msg}", exc_info=True)
             return None
 
@@ -4841,25 +4867,25 @@ class AnswerExecutor:
         if not letters:
             letters = self._letters_from_option_text(answer, q)
             if letters:
-                print(f"\t答案不是字母，已按选项原文反查: {letters}")
+                log_print(f"\t答案不是字母，已按选项原文反查: {letters}")
         if len(letters) != 1:
-            print(f"\t单选题需要一个有效选项，收到: {answer}")
+            log_print(f"\t单选题需要一个有效选项，收到: {answer}")
             return False
         answer_letter = letters[0]
 
-        print(f"\t寻找选项: {answer_letter}")
-        print(f"\t可用选项: {[opt.letter for opt in q.options]}")
+        log_print(f"\t寻找选项: {answer_letter}")
+        log_print(f"\t可用选项: {[opt.letter for opt in q.options]}")
 
         for opt in q.options:
             if opt.letter.upper() == answer_letter.upper():
-                print(f"\t点击选项 {opt.letter}: {opt.text[:30]}...")
+                log_print(f"\t点击选项 {opt.letter}: {opt.text[:30]}...")
                 return WebDriverHelper.safe_click(self.driver, opt.element)
 
         try:
             idx = ord(answer_letter.upper()) - ord('A')
             if 0 <= idx < len(q.options):
                 opt = q.options[idx]
-                print(f"\t通过索引匹配选项 {opt.letter}: {opt.text[:30]}...")
+                log_print(f"\t通过索引匹配选项 {opt.letter}: {opt.text[:30]}...")
                 return WebDriverHelper.safe_click(self.driver, opt.element)
         except Exception:
             log_swallowed("AnswerExecutor._fill_single_choice:4864")
@@ -4871,9 +4897,9 @@ class AnswerExecutor:
         if not letters:
             letters = self._letters_from_option_text(answer, q)
             if letters:
-                print(f"\t答案不是字母，已按选项原文反查: {letters}")
+                log_print(f"\t答案不是字母，已按选项原文反查: {letters}")
         if not letters:
-            print(f"\t多选题答案没有有效的选项组合: {answer}")
+            log_print(f"\t多选题答案没有有效的选项组合: {answer}")
             return False
         for opt in q.options:
             should_select = opt.letter.upper() in letters
@@ -4888,7 +4914,7 @@ class AnswerExecutor:
         if not order:
             return False
 
-        print(f"\t排序答案: {' '.join(order)}")
+        log_print(f"\t排序答案: {' '.join(order)}")
         if self._apply_sorting_by_react(q, order):
             return True
 
@@ -4995,7 +5021,7 @@ class AnswerExecutor:
             interruptible_sleep(0.4)
             return self._current_sorting_order(q) == order
         except Exception as e:
-            print(f"\tReact 排序失败: {str(e)[:60]}")
+            log_print(f"\tReact 排序失败: {str(e)[:60]}")
             return False
 
     def _apply_sorting_by_drag(self, q: Question, order: List[str]) -> bool:
@@ -5020,7 +5046,7 @@ class AnswerExecutor:
 
             return self._current_sorting_order(q) == order
         except Exception as e:
-            print(f"\t拖拽排序失败: {str(e)[:60]}")
+            log_print(f"\t拖拽排序失败: {str(e)[:60]}")
             return False
 
     def _apply_sorting_by_js(self, q: Question, order: List[str]) -> bool:
@@ -5076,16 +5102,16 @@ class AnswerExecutor:
             interruptible_sleep(0.5)
             return bool(result) and self._current_sorting_order(q) == order
         except Exception as e:
-            print(f"\tJS排序失败: {str(e)[:60]}")
+            log_print(f"\tJS排序失败: {str(e)[:60]}")
             return False
 
     def _fill_banked_cloze(self, q: Question, answer: str) -> bool:
         words = self._parse_banked_answer(answer, len(q.banked_blanks))
         is_phrase_mode = q.is_phrase_mode
 
-        print(f"\t解析答案: {words}")
-        print(f"\t填空数量: {len(q.banked_blanks)}")
-        print(f"\t模式: {'短语' if is_phrase_mode else '单词'}")
+        log_print(f"\t解析答案: {words}")
+        log_print(f"\t填空数量: {len(q.banked_blanks)}")
+        log_print(f"\t模式: {'短语' if is_phrase_mode else '单词'}")
 
         success_count = 0
 
@@ -5100,7 +5126,7 @@ class AnswerExecutor:
                             allow_rewrite=not is_expression_bank_question(q))
                         if matched:
                             clean_word = matched
-                            print(f"        匹配到选项: {clean_word}")
+                            log_print(f"        匹配到选项: {clean_word}")
 
                     self.driver.execute_script(
                         "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
@@ -5109,15 +5135,15 @@ class AnswerExecutor:
                     interruptible_sleep(0.3)
 
                     if not self._fill_text_input_verified(blank['input'], clean_word):
-                        print(f"        空{i + 1}: 写入后校验失败，跳过该空")
+                        log_print(f"        空{i + 1}: 写入后校验失败，跳过该空")
                         continue
 
-                    print(f"        空{i + 1}: {clean_word}")
+                    log_print(f"        空{i + 1}: {clean_word}")
                     success_count += 1
 
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"      填空 {i + 1} 失败:{error_msg[:50]} ")
+                    log_print(f"      填空 {i + 1} 失败:{error_msg[:50]} ")
                     logger.error(f"详细错误: {error_msg}", exc_info=True)
 
         return bool(q.banked_blanks) and success_count == len(q.banked_blanks)
@@ -5177,8 +5203,8 @@ class AnswerExecutor:
 
     def _fill_fill_in(self, q: Question, answer: str) -> bool:
         answers = self._parse_banked_answer(answer, len(q.inputs))
-        print(f"\t解析答案: {answers}")
-        print(f"\t输入框数量: {len(q.inputs)}")
+        log_print(f"\t解析答案: {answers}")
+        log_print(f"\t输入框数量: {len(q.inputs)}")
 
         success_count = 0
         for i, inp in enumerate(q.inputs):
@@ -5189,18 +5215,18 @@ class AnswerExecutor:
                     hint = q.banked_blanks[i].get('hint') or ''
                 stripped = self._strip_given_prefix(hint, ans)
                 if stripped != ans:
-                    print(f"\t空{i + 1}: 去掉已给出的「{hint}」-> {stripped}")
+                    log_print(f"\t空{i + 1}: 去掉已给出的「{hint}」-> {stripped}")
                     ans = stripped
-                print(f"\t空{i + 1}: {ans}")
+                log_print(f"\t空{i + 1}: {ans}")
                 if self._fill_text_input_verified(inp, ans):
                     success_count += 1
                 else:
-                    print(f"\t空{i + 1}: 写入后校验失败")
+                    log_print(f"\t空{i + 1}: 写入后校验失败")
             else:
-                print(f"\t空{i + 1}: (空)")
+                log_print(f"\t空{i + 1}: (空)")
 
         if q.inputs and success_count < len(q.inputs):
-            print(f"\t只填写 {success_count}/{len(q.inputs)} 个空，不提交")
+            log_print(f"\t只填写 {success_count}/{len(q.inputs)} 个空，不提交")
         return bool(q.inputs) and success_count == len(q.inputs)
 
     @staticmethod
@@ -5269,7 +5295,7 @@ class AnswerExecutor:
     def _answer_record(self, q: Question, answer: str = "") -> bool:
         items = list(q.record_items or [])
         if not items:
-            print("\t没有找到录音条目")
+            log_print("\t没有找到录音条目")
             return False
         if items[0].get('role_play'):
             return self._answer_role_play(q)
@@ -5279,23 +5305,23 @@ class AnswerExecutor:
         self._dismiss_record_popup()
         probe = self.driver.execute_async_script(RECORD_MIC_JS, "", self.RECORD_LEAD_PAD, 0)
         if not probe or not probe.get("ok"):
-            print(f"\t录音注入初始化失败: {probe}")
+            log_print(f"\t录音注入初始化失败: {probe}")
             return False
 
         texts = self._record_speech_texts(q, answer)
         if not any((item.get('url') or '').strip() for item in items):
-            print("\t录音题没有原声，用 TTS 朗读页面原文")
+            log_print("\t录音题没有原声，用 TTS 朗读页面原文")
 
         for idx in range(len(items)):
             try:
                 self._record_one_item(q, idx, texts)
             except Exception as exc:
-                print(f"\t第 {idx + 1} 条录音失败: {str(exc)[:80]}")
+                log_print(f"\t第 {idx + 1} 条录音失败: {str(exc)[:80]}")
                 logger.error("录音题执行失败", exc_info=True)
 
         missing = [i for i in range(len(items)) if not self._row_done(q, i)]
         if missing:
-            print(f"\t有 {len(missing)} 条没有录制结果，补录: {[i + 1 for i in missing]}")
+            log_print(f"\t有 {len(missing)} 条没有录制结果，补录: {[i + 1 for i in missing]}")
             for idx in missing:
                 try:
                     self._record_one_item(q, idx, texts)
@@ -5303,7 +5329,7 @@ class AnswerExecutor:
                     logger.error("录音题补录失败", exc_info=True)
 
         done = sum(1 for i in range(len(items)) if self._row_done(q, i))
-        print(f"\t录音题完成 {done}/{len(items)} 条")
+        log_print(f"\t录音题完成 {done}/{len(items)} 条")
         return done == len(items)
 
     ORAL_ALOUD_COUNTDOWN = 130
@@ -5315,14 +5341,14 @@ class AnswerExecutor:
         item = (q.record_items or [{}])[0]
         text = (item.get('text') or '').strip() or self._record_reading_text(q)
         if not text:
-            print("\t朗读题没有读到原文，跳过")
+            log_print("\t朗读题没有读到原文，跳过")
             return False
         if not self._tts().enabled:
-            print("\t朗读题需要 TTS，TTS 已关闭，跳过")
+            log_print("\t朗读题需要 TTS，TTS 已关闭，跳过")
             return False
         state = self.driver.execute_script(ORAL_ALOUD_STATE_JS) or {}
         if (state.get('score') or '').strip():
-            print(f"\t朗读题已有得分 {state.get('score')}，跳过")
+            log_print(f"\t朗读题已有得分 {state.get('score')}，跳过")
             return True
         data = self._speech_audio(text, self.RECORD_MAX_SECONDS)
         if not data:
@@ -5331,17 +5357,17 @@ class AnswerExecutor:
         probe = self.driver.execute_async_script(
             RECORD_MIC_JS, payload, self.RECORD_LEAD_PAD, self.RECORD_MAX_SECONDS)
         if not probe or not probe.get('ok'):
-            print(f"\t朗读音频注入失败: {probe}")
+            log_print(f"\t朗读音频注入失败: {probe}")
             return False
         self._oral_stop_after = float(probe.get('dur') or 0) + 1.0
-        print("\t朗读题：开始强制流程（约 4 分钟）")
+        log_print("\t朗读题：开始强制流程（约 4 分钟）")
         if not self._oral_aloud_start(q):
             return False
         score = self._wait_oral_aloud(q)
         if score is None:
-            print("\t朗读题等待超时，没有拿到分数")
+            log_print("\t朗读题等待超时，没有拿到分数")
             return False
-        print(f"\t朗读题得分 {score}")
+        log_print(f"\t朗读题得分 {score}")
         return True
 
     def _oral_aloud_start(self, q: Question) -> bool:
@@ -5356,7 +5382,7 @@ class AnswerExecutor:
                 button = self.driver.find_element(
                     By.CSS_SELECTOR, '.p-oral-aloud-button .button-start')
             except Exception:
-                print("\t找不到朗读题的 start 按钮")
+                log_print("\t找不到朗读题的 start 按钮")
                 return False
         try:
             self.driver.execute_script(
@@ -5364,7 +5390,7 @@ class AnswerExecutor:
             interruptible_sleep(0.3)
             button.click()
         except Exception as exc:
-            print(f"\t点击 start 失败: {str(exc)[:60]}")
+            log_print(f"\t点击 start 失败: {str(exc)[:60]}")
             return False
         return True
 
@@ -5397,12 +5423,12 @@ class AnswerExecutor:
                     try:
                         btn = q.element.find_element(By.CSS_SELECTOR, '.record-icon.button-record')
                         self.driver.execute_script('arguments[0].click()', btn)
-                        print("\t朗读录音结束，点击停止")
+                        log_print("\t朗读录音结束，点击停止")
                     except Exception:
                         try:
                             btn = self.driver.find_element(By.CSS_SELECTOR, '.record-icon.button-record')
                             self.driver.execute_script('arguments[0].click()', btn)
-                            print("\t朗读录音结束，点击停止")
+                            log_print("\t朗读录音结束，点击停止")
                         except Exception:
                             log_swallowed("AnswerExecutor._wait_oral_aloud:5406")
             interruptible_sleep(2)
@@ -5414,22 +5440,22 @@ class AnswerExecutor:
         first = (q.record_items or [{}])[0]
         total = int(first.get('vocab_total') or 0) or 0
         if total <= 0:
-            print("\t未读到词汇卡片总数，停止以免遗漏卡片")
+            log_print("\t未读到词汇卡片总数，停止以免遗漏卡片")
             return False
-        print(f"\t词汇跟读：共 {total} 张卡片，使用页面原声逐张跟读（不调用 AI）")
+        log_print(f"\t词汇跟读：共 {total} 张卡片，使用页面原声逐张跟读（不调用 AI）")
 
         self._dismiss_record_popup()
         probe = self.driver.execute_async_script(
             RECORD_MIC_JS, "", self.RECORD_LEAD_PAD, 0)
         if not probe or not probe.get("ok"):
-            print(f"\t录音注入初始化失败: {probe}")
+            log_print(f"\t录音注入初始化失败: {probe}")
             return False
 
         try:
             current = self.driver.execute_script(VOCAB_CARD_JS, q.element) or {}
             if int(current.get('index') or 0) != 1:
                 if not self.driver.execute_script(VOCAB_NEXT_JS, q.element, True):
-                    print("\t无法返回第一张词汇卡片，停止")
+                    log_print("\t无法返回第一张词汇卡片，停止")
                     return False
         except Exception:
             return False
@@ -5438,11 +5464,11 @@ class AnswerExecutor:
         for index in range(1, total + 1):
             info = self._wait_vocab_card(q, index)
             if not info:
-                print(f"\t第 {index} 张卡片尚未就绪，停止")
+                log_print(f"\t第 {index} 张卡片尚未就绪，停止")
                 break
             word = (info.get('word') or '').strip()
             ok = self._record_vocab_card(q, info)
-            print(f"\t词汇跟读 [{index}/{total}] {word} -> {'OK' if ok else '失败'}")
+            log_print(f"\t词汇跟读 [{index}/{total}] {word} -> {'OK' if ok else '失败'}")
             if not ok or self.stop_requested.is_set():
                 break
             done += 1
@@ -5454,10 +5480,10 @@ class AnswerExecutor:
             except Exception:
                 moved = ''
             if not moved:
-                print("\t找不到下一张卡片的切换方式，停止")
+                log_print("\t找不到下一张卡片的切换方式，停止")
                 break
 
-        print(f"\t词汇跟读完成 {done}/{total} 张")
+        log_print(f"\t词汇跟读完成 {done}/{total} 张")
         return done == total and not self.stop_requested.is_set()
 
     def _wait_vocab_card(self, q: Question, index: int) -> Optional[Dict]:
@@ -5514,14 +5540,14 @@ class AnswerExecutor:
         data = (self._download_record_audio(url) if url
                 else self._speech_audio(word, 0))
         if not data:
-            print(f"\t{word}: {'原声下载失败' if url else 'TTS 生成失败'}")
+            log_print(f"\t{word}: {'原声下载失败' if url else 'TTS 生成失败'}")
             return False
 
         payload = base64.b64encode(data).decode()
         state = self.driver.execute_async_script(
             RECORD_MIC_JS, payload, self.RECORD_LEAD_PAD, 0)
         if not state or not state.get('ok'):
-            print(f"\t{word}: 音频注入失败 {state}")
+            log_print(f"\t{word}: 音频注入失败 {state}")
             return False
         clip = float(state.get('dur') or 0) or (duration + self.RECORD_LEAD_PAD)
 
@@ -5533,7 +5559,7 @@ class AnswerExecutor:
             return False
         buttons = self._vocab_record_buttons(q)
         if not buttons:
-            print(f"\t{word}: 没找到录音按钮")
+            log_print(f"\t{word}: 没找到录音按钮")
             return False
         button = buttons[0]
         try:
@@ -5544,17 +5570,17 @@ class AnswerExecutor:
         if self.stop_requested.wait(0.2):
             return False
         if not WebDriverHelper.safe_click(self.driver, button):
-            print(f"\t{word}: 点击录音失败")
+            log_print(f"\t{word}: 点击录音失败")
             return False
         interrupted = self.stop_requested.wait(clip + 0.8)
         buttons = self._vocab_record_buttons(q)
         if not buttons or not WebDriverHelper.safe_click(self.driver, buttons[0]):
-            print(f"\t{word}: 点击停止失败")
+            log_print(f"\t{word}: 点击停止失败")
             return False
         if interrupted or self.stop_requested.is_set():
             return False
         if not self._wait_vocab_upload(q, baseline):
-            print(f"\t{word}: 未确认本次录音上传完成")
+            log_print(f"\t{word}: 未确认本次录音上传完成")
             return False
         return True
 
@@ -5657,14 +5683,14 @@ class AnswerExecutor:
     def _speech_audio(self, text: str, idx: int) -> Optional[bytes]:
         text = (text or '').strip()
         if not text:
-            print(f"\t第 {idx + 1} 条: 没有可朗读的稿件")
+            log_print(f"\t第 {idx + 1} 条: 没有可朗读的稿件")
             return None
         engine = self._tts()
         fmt, data = engine.synthesize(text, self.RECORD_MAX_SECONDS)
         if not data:
-            print(f"\t第 {idx + 1} 条: TTS 合成失败（{engine.last_error or '未知原因'}）")
+            log_print(f"\t第 {idx + 1} 条: TTS 合成失败（{engine.last_error or '未知原因'}）")
             return None
-        print(f"\t第 {idx + 1} 条: TTS 生成 {fmt} 音频 {len(data)} 字节")
+        log_print(f"\t第 {idx + 1} 条: TTS 生成 {fmt} 音频 {len(data)} 字节")
         return data
 
     def _record_one_item(self, q: Question, idx: int, texts: Optional[List[str]] = None) -> bool:
@@ -5677,7 +5703,7 @@ class AnswerExecutor:
         if url:
             data = self._download_record_audio(url)
             if not data:
-                print(f"\t第 {idx + 1} 条: 参考音频下载失败")
+                log_print(f"\t第 {idx + 1} 条: 参考音频下载失败")
                 return False
         else:
             text = texts[idx] if texts and idx < len(texts) else ''
@@ -5693,36 +5719,36 @@ class AnswerExecutor:
         for pad in pads:
             state = self.driver.execute_async_script(RECORD_MIC_JS, payload, pad, max_dur)
             if not state or not state.get("ok"):
-                print(f"\t第 {idx + 1} 条: 音频注入失败 {state}")
+                log_print(f"\t第 {idx + 1} 条: 音频注入失败 {state}")
                 return False
             clip = float(state.get("dur") or 0) or (float(item.get('duration') or 0) + pad)
 
             button = self._record_button(q, idx)
             if button is None:
-                print(f"\t第 {idx + 1} 条: 录音按钮已消失")
+                log_print(f"\t第 {idx + 1} 条: 录音按钮已消失")
                 return False
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", button)
             interruptible_sleep(0.3)
             if not WebDriverHelper.safe_click(self.driver, button):
-                print(f"\t第 {idx + 1} 条: 点击录音失败")
+                log_print(f"\t第 {idx + 1} 条: 点击录音失败")
                 return False
             interruptible_sleep(clip + 1.0)
             stop_button = self._record_button(q, idx)
             if stop_button is None or not WebDriverHelper.safe_click(
                     self.driver, stop_button):
-                print(f"\t第 {idx + 1} 条: 点击停止失败")
+                log_print(f"\t第 {idx + 1} 条: 点击停止失败")
 
             timeout = max(30.0, min(120.0, clip * 1.2))
             last_state = self._wait_record_finish(q, idx, timeout=timeout, baseline=baseline)
             score = (last_state or {}).get('score')
             if score is None:
                 if last_state and self._row_recorded(last_state, baseline):
-                    print(f"\t第 {idx + 1} 条: 已录制（{clip:.1f}s，未返回分数）")
+                    log_print(f"\t第 {idx + 1} 条: 已录制（{clip:.1f}s，未返回分数）")
                     return True
-                print(f"\t第 {idx + 1} 条: 未拿到录制结果（可能录音未被识别）")
+                log_print(f"\t第 {idx + 1} 条: 未拿到录制结果（可能录音未被识别）")
             else:
-                print(f"\t第 {idx + 1} 条: 得分 {score}")
+                log_print(f"\t第 {idx + 1} 条: 得分 {score}")
                 if int(score) >= self.RECORD_MIN_SCORE:
                     return True
             interruptible_sleep(0.6)
@@ -5749,7 +5775,7 @@ class AnswerExecutor:
                     button = self._record_button(q, idx)
                     if button is not None:
                         WebDriverHelper.safe_click(self.driver, button)
-                        print(f"\t第 {idx + 1} 条: 检测到仍在录音，补一次停止点击")
+                        log_print(f"\t第 {idx + 1} 条: 检测到仍在录音，补一次停止点击")
                 except Exception:
                     log_swallowed("AnswerExecutor._wait_record_finish:5753")
                 interruptible_sleep(1.5)
@@ -5782,13 +5808,13 @@ class AnswerExecutor:
                     seconds: children.reduce((s, x) => s + ((x.config || {}).recordTime || 0) / 1000, 0)};
             """, q.element)
             if not info or not info.get('lines'):
-                print('\t无法读取角色台词')
+                log_print('\t无法读取角色台词')
                 return False
             clips = []
             for line in info['lines']:
                 data = self._download_record_audio((line.get('url') or '').split('#')[0])
                 if not data:
-                    print('\t角色台词缺少参考音频')
+                    log_print('\t角色台词缺少参考音频')
                     return False
                 clips.append(base64.b64encode(data).decode())
             prepared = self.driver.execute_async_script("""
@@ -5810,7 +5836,7 @@ class AnswerExecutor:
                 })().catch(() => done(false));
             """, clips)
             if not prepared:
-                print('\t角色台词音频初始化失败')
+                log_print('\t角色台词音频初始化失败')
                 return False
             started = False
             try:
@@ -5832,11 +5858,11 @@ class AnswerExecutor:
                     """, q.element)
                     if (state['left'] == 0 and len(state['scores']) == len(clips)
                             and all(state['scores']) and state['finished']):
-                        print(f"\t角色扮演录音完成，得分: {', '.join(state['scores'])}")
+                        log_print(f"\t角色扮演录音完成，得分: {', '.join(state['scores'])}")
                         started = False
                         return True
                     self.stop_requested.wait(0.5)
-                print('\t角色扮演录音未完成')
+                log_print('\t角色扮演录音未完成')
                 return False
             finally:
                 if started:
@@ -5853,7 +5879,7 @@ class AnswerExecutor:
                     }
                 """)
         except Exception as exc:
-            print(f'\t角色扮演处理失败: {str(exc)[:100]}')
+            log_print(f'\t角色扮演处理失败: {str(exc)[:100]}')
             return False
 
     def _download_record_audio(self, url: str) -> Optional[bytes]:
@@ -5877,7 +5903,7 @@ class AnswerExecutor:
                 self.RECORD_AUDIO_CACHE[url] = data
                 return data
         except Exception as exc:
-            print(f"\t参考音频下载失败: {str(exc)[:80]}")
+            log_print(f"\t参考音频下载失败: {str(exc)[:80]}")
         return None
 
     def _dismiss_record_popup(self):
@@ -5916,10 +5942,10 @@ class AnswerExecutor:
             success_count = 0
             for idx, (inp, ans) in enumerate(zip(q.inputs, answers), 1):
                 if not ans:
-                    print(f"\t题{idx}: (空)")
+                    log_print(f"\t题{idx}: (空)")
                     continue
 
-                print(f"\t题{idx}: {ans[:60]}...")
+                log_print(f"\t题{idx}: {ans[:60]}...")
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
                     inp
@@ -5928,14 +5954,14 @@ class AnswerExecutor:
                 if self._fill_text_input_verified(inp, ans):
                     success_count += 1
                 else:
-                    print(f"\t题{idx}: 写入后校验失败")
+                    log_print(f"\t题{idx}: 写入后校验失败")
 
             return len(answers) == expected_count and success_count == expected_count
 
         if ans and q.q_type == QuestionType.MY_VOICE_TEXT:
             ans = self._limit_text_answer(ans, 500)
 
-        print(f"\t题{q.number}: {ans[:60]}..." if ans else f"\t题{q.number}: (空)")
+        log_print(f"\t题{q.number}: {ans[:60]}..." if ans else f"\t题{q.number}: (空)")
 
         if ans:
             inp = q.inputs[0]
@@ -5959,7 +5985,7 @@ class AnswerExecutor:
         if self._input_value_matches(inp, ans):
             return True
 
-        print("\t输入框为受控组件，使用 JS 同步值")
+        log_print("\t输入框为受控组件，使用 JS 同步值")
         self.driver.execute_script("""
             const el = arguments[0];
             const value = arguments[1];
@@ -5989,7 +6015,7 @@ class AnswerExecutor:
     def _upload_my_voice_answer_file(self, q: Question, answer: str) -> bool:
         try:
             if self._my_voice_has_uploaded_file(q):
-                print("\tMy voice 已存在上传文件，跳过自动上传")
+                log_print("\tMy voice 已存在上传文件，跳过自动上传")
                 return True
 
             file_input = q.element.find_element(By.CSS_SELECTOR, '.question-multi-file-upload input[type="file"]')
@@ -6002,10 +6028,10 @@ class AnswerExecutor:
                 arguments[0].style.height = '1px';
             """, file_input)
             file_input.send_keys(file_path)
-            print(f"\tMy voice 已上传附件: {os.path.basename(file_path)}")
+            log_print(f"\tMy voice 已上传附件: {os.path.basename(file_path)}")
             return self._wait_my_voice_upload_ready(q)
         except Exception as e:
-            print(f"\tMy voice 附件上传失败: {str(e)[:80]}")
+            log_print(f"\tMy voice 附件上传失败: {str(e)[:80]}")
             return False
 
     def _my_voice_has_uploaded_file(self, q: Question) -> bool:
@@ -6064,7 +6090,7 @@ class AnswerExecutor:
             status = self._my_voice_upload_status(q)
             last_status = status
             if status.get('toast_fail'):
-                print("\tMy voice 附件上传失败")
+                log_print("\tMy voice 附件上传失败")
                 return False
             if status.get('has_item') and not status.get('uploading'):
                 if status.get('toast_success') or status.get('fallback'):
@@ -6078,7 +6104,7 @@ class AnswerExecutor:
             else:
                 ready_since = None
             interruptible_sleep(0.4)
-        print(f"\tMy voice 附件上传超时（{timeout}s，has_item={last_status.get('has_item')}，"
+        log_print(f"\tMy voice 附件上传超时（{timeout}s，has_item={last_status.get('has_item')}，"
               f"uploading={last_status.get('uploading')}），停止提交以避免漏传")
         return False
 
@@ -6166,10 +6192,10 @@ class AnswerExecutor:
         letters_pool = [opt.letter.upper() for opt in q.options] or list("ABCDEF")
         letters = self._parse_matching_letters(answer, total, letters_pool)
         if not letters:
-            print(f"\t匹配题没有解析出字母: {answer[:80]}")
+            log_print(f"\t匹配题没有解析出字母: {answer[:80]}")
             return False
 
-        print(f"\t匹配答案: {letters}")
+        log_print(f"\t匹配答案: {letters}")
         success = 0
         for idx, inp in enumerate(q.inputs):
             letter = letters[idx] if idx < len(letters) else ""
@@ -6183,7 +6209,7 @@ class AnswerExecutor:
             if self._fill_text_input_verified(inp, letter):
                 success += 1
             else:
-                print(f"\t空{idx + 1}: 写入 {letter} 失败")
+                log_print(f"\t空{idx + 1}: 写入 {letter} 失败")
         return success == total or (success > 0 and success == len(q.inputs))
 
     def _fill_paragraph_match(self, q: Question, answer: str) -> bool:
@@ -6191,9 +6217,9 @@ class AnswerExecutor:
         pool = [str(x).upper() for x in (q.banked_options or [])] or list("ABCDEFGHIJKLMNO")
         letters = self._parse_paragraph_letters(answer, total, pool)
         if not any(letters):
-            print(f"\t段落匹配没有解析出字母: {answer[:80]}")
+            log_print(f"\t段落匹配没有解析出字母: {answer[:80]}")
             return False
-        print(f"\t段落匹配答案: {letters}")
+        log_print(f"\t段落匹配答案: {letters}")
         success = 0
         for idx, inp in enumerate(q.inputs):
             letter = letters[idx] if idx < len(letters) else ""
@@ -6208,7 +6234,7 @@ class AnswerExecutor:
             if self._fill_text_input_verified(inp, letter):
                 success += 1
             else:
-                print(f"\t空{idx + 1}: 写入 {letter} 失败")
+                log_print(f"\t空{idx + 1}: 写入 {letter} 失败")
         return success == total
 
     @staticmethod
@@ -6312,7 +6338,7 @@ class AnswerExecutor:
                 return null;
             """)
             if fallback is not None:
-                print("\t通过文本兜底点击提交按钮")
+                log_print("\t通过文本兜底点击提交按钮")
                 return WebDriverHelper.safe_click(self.driver, fallback)
         except Exception:
             log_swallowed("AnswerExecutor.submit:6317")
@@ -6384,7 +6410,7 @@ class AnswerExecutor:
         numbered = AnswerExecutor._split_numbered_answers(answer, expected_count)
         if numbered:
             return numbered
-        print(f"    [调试] 清理后答案前200字: {answer[:200]}...")
+        log_print(f"    [调试] 清理后答案前200字: {answer[:200]}...")
 
         matched_any = False
         label_prefix = rf'(?:{AnswerExecutor.ANSWER_LABEL_PATTERN}\s*[：:]\s*)?'
@@ -6399,14 +6425,14 @@ class AnswerExecutor:
                 clean_ans = AnswerExecutor._clean_extracted_answer(match.group(1)).replace('\n', ' ')
                 result[i - 1] = clean_ans
                 matched_any = True
-                print(f"    [调试] 成功提取空 {i}: '{clean_ans}'")
+                log_print(f"    [调试] 成功提取空 {i}: '{clean_ans}'")
             else:
-                print(f"    [调试] 题号 {i} 匹配失败或为空")
+                log_print(f"    [调试] 题号 {i} 匹配失败或为空")
 
         if matched_any:
             return result
 
-        print(f"    [调试] 题号匹配完全失效，启动降级切分模式")
+        log_print(f"    [调试] 题号匹配完全失效，启动降级切分模式")
         lines = [line.strip() for line in answer.split('\n') if line.strip()]
         content_lines = []
 
@@ -6430,8 +6456,8 @@ class AnswerExecutor:
         if (not q.banked_blanks or len(answers) != len(q.banked_blanks)
                 or not all(answer.strip() for answer in answers)):
             return False
-        print(f"      解析答案: {answers}")
-        print(f"      填空数量: {len(q.banked_blanks)}")
+        log_print(f"      解析答案: {answers}")
+        log_print(f"      填空数量: {len(q.banked_blanks)}")
 
         success_count = 0
 
@@ -6440,7 +6466,7 @@ class AnswerExecutor:
                 continue
 
             try:
-                print(f"      空{i + 1}: '{ans}'")
+                log_print(f"      空{i + 1}: '{ans}'")
                 select_wrapper = blank['element']
 
                 self.driver.execute_script(
@@ -6458,7 +6484,7 @@ class AnswerExecutor:
 
                 actions = ActionChains(self.driver)
                 actions.move_to_element(trigger).click().perform()
-                print(f"         点击触发器打开下拉")
+                log_print(f"         点击触发器打开下拉")
                 interruptible_sleep(0.8)
 
                 dropdown_menu = None
@@ -6479,7 +6505,7 @@ class AnswerExecutor:
                     interruptible_sleep(0.3)
 
                 if not dropdown_menu:
-                    print(f"         下拉菜单未出现，尝试备选方案")
+                    log_print(f"         下拉菜单未出现，尝试备选方案")
                     if self._force_select_by_js(select_wrapper, ans):
                         success_count += 1
                     continue
@@ -6501,7 +6527,7 @@ class AnswerExecutor:
                         for opt in options:
                             if ans.lower() in opt.text.lower() and opt.is_displayed():
                                 ActionChains(self.driver).move_to_element(opt).click().perform()
-                                print(f"         点击选项: {opt.text[:20]}")
+                                log_print(f"         点击选项: {opt.text[:20]}")
                                 option_clicked = True
                                 break
                         if option_clicked:
@@ -6521,7 +6547,7 @@ class AnswerExecutor:
                             if label and (label.lower() == ans.lower()
                                           or ans.lower() in label.lower()):
                                 ActionChains(self.driver).move_to_element(opt).click().perform()
-                                print(f"         通用候选项点击: {label[:20]}")
+                                log_print(f"         通用候选项点击: {label[:20]}")
                                 option_clicked = True
                                 break
                     except Exception:
@@ -6533,7 +6559,7 @@ class AnswerExecutor:
                             option = self.driver.find_element(By.XPATH, xpath)
                             if option.is_displayed():
                                 ActionChains(self.driver).move_to_element(option).click().perform()
-                                print(f"         XPath点击选项")
+                                log_print(f"         XPath点击选项")
                                 option_clicked = True
                                 break
                         except Exception:
@@ -6548,22 +6574,22 @@ class AnswerExecutor:
                         displayed_text = answer_text_elem.text.strip()
 
                         if ans.lower() in displayed_text.lower():
-                            print(f"         验证成功，显示文本: {displayed_text[:20]}")
+                            log_print(f"         验证成功，显示文本: {displayed_text[:20]}")
                             success_count += 1
                         else:
-                            print(f"         视觉反馈异常，文本: {displayed_text[:20]}")
+                            log_print(f"         视觉反馈异常，文本: {displayed_text[:20]}")
                             self._sync_react_state(select_wrapper, ans)
 
                     except Exception as e:
-                        print(f"         验证失败: {str(e)[:50]}")
+                        log_print(f"         验证失败: {str(e)[:50]}")
 
                 else:
-                    print(f"         未找到选项 '{ans}'")
+                    log_print(f"         未找到选项 '{ans}'")
                     if self._force_select_by_js(select_wrapper, ans):
                         success_count += 1
 
             except Exception as e:
-                print(f"        处理空{i + 1}失败: {str(e)[:50]}")
+                log_print(f"        处理空{i + 1}失败: {str(e)[:50]}")
                 logger.error(f"详细错误: {str(e)}", exc_info=True)
                 continue
 
@@ -6574,8 +6600,8 @@ class AnswerExecutor:
         if not q.inputs or len(q.banked_blanks) != len(q.inputs) or len(answers) != len(q.inputs):
             return False
 
-        print(f"\t解析答案: {answers}")
-        print(f"\t输入框数量: {len(q.inputs)}")
+        log_print(f"\t解析答案: {answers}")
+        log_print(f"\t输入框数量: {len(q.inputs)}")
 
         success_count = 0
         for i, (blank_info, ans) in enumerate(zip(q.banked_blanks, answers)):
@@ -6589,13 +6615,13 @@ class AnswerExecutor:
                 else:
                     ans = self._normalize_listening_blank_answer(blank_info, ans)
                 if ans != original_ans:
-                    print(f"\t空{i + 1}: {original_ans} -> {ans}")
+                    log_print(f"\t空{i + 1}: {original_ans} -> {ans}")
                 else:
-                    print(f"\t空{i + 1}: {ans}")
+                    log_print(f"\t空{i + 1}: {ans}")
                 if self._fill_text_input_verified(blank_info['input'], ans):
                     success_count += 1
                 else:
-                    print(f"\t空{i + 1}: 写入后校验失败")
+                    log_print(f"\t空{i + 1}: 写入后校验失败")
 
         return success_count == len(q.inputs)
 
@@ -6698,14 +6724,14 @@ class AnswerExecutor:
         """
 
             result = self.driver.execute_script(js, select_wrapper, value)
-            print(f"        JS强制设置结果: {result}")
+            log_print(f"        JS强制设置结果: {result}")
 
             interruptible_sleep(0.3)
             text_elem = select_wrapper.find_element(By.CSS_SELECTOR, '.user-answer-text')
             return result == 'react_onChange_triggered' and value.lower() in text_elem.text.lower()
 
         except Exception as e:
-            print(f"        JS强制设置失败: {str(e)[:50]}")
+            log_print(f"        JS强制设置失败: {str(e)[:50]}")
             return False
 
     def _sync_react_state(self, select_wrapper, value: str) -> bool:
@@ -7627,7 +7653,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 if state.get('error') or self.stop_requested.wait(0.25):
                     break
         except Exception as exc:
-            print(f"    材料播放失败: {str(exc)[:80]}")
+            log_print(f"    材料播放失败: {str(exc)[:80]}")
         finally:
             try:
                 self.driver.execute_script('arguments[0].pause();', media)
@@ -7639,7 +7665,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         item = q.record_items[0]
         url = (item.get('url') or '').strip()
         if url and item.get('sample') and not self.play_material(item['sample']):
-            print("\t样音播放失败")
+            log_print("\t样音播放失败")
             return False
         if url:
             data = self._download_record_audio(url)
@@ -7664,7 +7690,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 RECORD_MIC_JS, base64.b64encode(data).decode(),
                 prep + self.RECORD_LEAD_PAD, self.RECORD_MAX_SECONDS)
             if not state or not state.get('ok') or not state.get('dur'):
-                print("\t录音注入初始化失败")
+                log_print("\t录音注入初始化失败")
                 return False
             before = self._publish_record_state(q)
             if not self._click_publish_record(q):
@@ -7680,7 +7706,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             else:
                 current = {}
             if not current or current.get('calls', 0) <= before.get('calls', 0):
-                print("\t录音器未启动，停止本题")
+                log_print("\t录音器未启动，停止本题")
                 return False
             if self.stop_requested.wait(float(state['dur']) + 1.0):
                 return False
@@ -7692,13 +7718,13 @@ class PublishAnswerExecutor(AnswerExecutor):
             while time.monotonic() < deadline and not self.stop_requested.is_set():
                 current = self._publish_record_state(q)
                 if set(current.get('uploaded') or []) - previous:
-                    print("\t录音已上传")
+                    log_print("\t录音已上传")
                     return True
                 if self.stop_requested.wait(0.5):
                     break
-            print("\t未能确认录音上传完成，不提交")
+            log_print("\t未能确认录音上传完成，不提交")
         except Exception as exc:
-            print(f"\t录音失败: {str(exc)[:80]}")
+            log_print(f"\t录音失败: {str(exc)[:80]}")
         finally:
             if started:
                 try:
@@ -7825,7 +7851,7 @@ class PublishAnswerExecutor(AnswerExecutor):
 
     def _fill_fill_in(self, q: Question, answer: str) -> bool:
         if q.blank_count and q.blank_count != len(q.inputs):
-            print("\t空位与输入框数量不一致，不填写该题")
+            log_print("\t空位与输入框数量不一致，不填写该题")
             return False
         return self._fill_required_inputs(q.inputs, self._parse_banked_answer(answer, len(q.inputs)))
 
@@ -7918,12 +7944,12 @@ class PublishAnswerExecutor(AnswerExecutor):
         prompts = [item for item in q.link_items if item.get('side') == 'right']
         options = [item for item in q.link_items if item.get('side') == 'left']
         if not prompts or not options:
-            print("\t连线匹配：画布节点不完整，跳过")
+            log_print("\t连线匹配：画布节点不完整，跳过")
             return False
         letter_to_item = {chr(65 + index): item for index, item in enumerate(options)}
         pairs = self._parse_link_answer(answer, len(prompts), len(options))
         if not pairs:
-            print("\t连线匹配：未能从回答里解析出配对，跳过")
+            log_print("\t连线匹配：未能从回答里解析出配对，跳过")
             return False
         try:
             self.driver.execute_script(
@@ -7942,7 +7968,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                 result = self.driver.execute_script(
                     self.LINK_ONCE_JS, group, source.get('id'), target.get('id'))
             except Exception as exc:
-                print(f"\t连线匹配：{index + 1}→{letter} 异常 {type(exc).__name__}")
+                log_print(f"\t连线匹配：{index + 1}→{letter} 异常 {type(exc).__name__}")
                 continue
             interruptible_sleep(0.35)
             now = self._link_edge_count(group)
@@ -7950,19 +7976,19 @@ class PublishAnswerExecutor(AnswerExecutor):
                 linked += 1
                 before = now
             else:
-                print(f"\t连线匹配：{index + 1}→{letter} 未生成连线（{result}）")
+                log_print(f"\t连线匹配：{index + 1}→{letter} 未生成连线（{result}）")
         after = self._link_edge_count(group)
-        print(f"\t连线匹配：连上 {linked} 组，画布共 {after} 条连线（提示 {len(prompts)} 条）")
+        log_print(f"\t连线匹配：连上 {linked} 组，画布共 {after} 条连线（提示 {len(prompts)} 条）")
         return after >= len(prompts)
 
     def _fill_required_inputs(self, inputs: List[Any], answers: List[str]) -> bool:
         if not inputs or len(answers) != len(inputs) or not all(answers):
-            print("\t答案不完整，不填写该题")
+            log_print("\t答案不完整，不填写该题")
             return False
         for index, (inp, answer) in enumerate(zip(inputs, answers), 1):
-            print(f"\t空{index}: {answer[:80]}")
+            log_print(f"\t空{index}: {answer[:80]}")
             if not self._fill_text_input_verified(inp, answer):
-                print(f"\t空{index}: 写入后校验失败")
+                log_print(f"\t空{index}: 写入后校验失败")
                 return False
         return True
 
@@ -7977,7 +8003,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         for _ in range(2):
             if self._type_by_keyboard(inp, ans):
                 return True
-        print("\t真实键盘输入失败，不提交该题目组")
+        log_print("\t真实键盘输入失败，不提交该题目组")
         return False
 
     def _type_by_keyboard(self, inp, ans: str) -> bool:
@@ -8012,11 +8038,11 @@ class PublishAnswerExecutor(AnswerExecutor):
     def _fill_true_false(self, question: Question, answer: str) -> bool:
         letter = self.normalize_true_false(answer)
         if not letter:
-            print(f"\t判断题答案无法识别: {str(answer)[:40]!r}")
+            log_print(f"\t判断题答案无法识别: {str(answer)[:40]!r}")
             return False
         for option in question.options:
             if option.letter.upper() == letter:
-                print(f"\t选择 {option.letter}（{option.text}）")
+                log_print(f"\t选择 {option.letter}（{option.text}）")
                 return WebDriverHelper.safe_click(self.driver, option.element)
         return False
 
@@ -8026,14 +8052,14 @@ class PublishAnswerExecutor(AnswerExecutor):
             return self._fill_fill_in(question, answer)
         answers = self._parse_banked_answer(answer, len(blanks))
         if len(answers) != len(blanks) or not all(answers):
-            print("\t下拉填空答案不完整，不填写该题")
+            log_print("\t下拉填空答案不完整，不填写该题")
             return False
         filled = 0
         for blank, value in zip(blanks, answers):
             if value and self._select_dropdown_value(blank, value):
                 filled += 1
         if filled < len(blanks):
-            print(f"\t下拉填空仅选中 {filled}/{len(blanks)} 个")
+            log_print(f"\t下拉填空仅选中 {filled}/{len(blanks)} 个")
             return False
         return True
 
@@ -8186,7 +8212,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     text = PublishPlayer.button_text(trigger)
                 except Exception:
                     text = ''
-                print(f" [dd] 关闭弹层 第{round_index + 1}轮: trigger={text!r} "
+                log_print(f" [dd] 关闭弹层 第{round_index + 1}轮: trigger={text!r} "
                       f"h={popup.rect.get('height')}")
             try:
                 ActionChains(self.driver).move_to_element(trigger).pause(0.15).click().perform()
@@ -8226,14 +8252,14 @@ class PublishAnswerExecutor(AnswerExecutor):
                     action()
                 except Exception as exc:
                     if DEBUG_MODE:
-                        print(f" [dd] {name} 点击失败: {str(exc).splitlines()[0][:60]}")
+                        log_print(f" [dd] {name} 点击失败: {str(exc).splitlines()[0][:60]}")
                     continue
                 if self._wait_dropdown_popup(1.3) is not None:
                     if DEBUG_MODE:
-                        print(f" [dd] 弹层已打开（{name}）")
+                        log_print(f" [dd] 弹层已打开（{name}）")
                     return True
         if DEBUG_MODE:
-            print(" [dd] 所有打开方式都没能打开弹层")
+            log_print(" [dd] 所有打开方式都没能打开弹层")
         return False
 
     def _dropdown_options_from_popup(self) -> List[str]:
@@ -8260,7 +8286,7 @@ class PublishAnswerExecutor(AnswerExecutor):
         trigger = self._dropdown_trigger(blank)
         if trigger is None:
             if DEBUG_MODE:
-                print(" [dd] 没找到下拉触发器")
+                log_print(" [dd] 没找到下拉触发器")
             return []
         popup = self._visible_dropdown_popup()
         if popup is None:
@@ -8269,7 +8295,7 @@ class PublishAnswerExecutor(AnswerExecutor):
             popup = self._visible_dropdown_popup()
         options = self._dropdown_options_from_popup() if popup is not None else []
         if DEBUG_MODE:
-            print(f" [dd] 候选数量: {len(options)}")
+            log_print(f" [dd] 候选数量: {len(options)}")
         self._close_visible_dropdowns()
         return options[:20]
 
@@ -8451,13 +8477,13 @@ class PublishAnswerExecutor(AnswerExecutor):
             return False
         button = self.find_submit_button(group)
         if button is None:
-            print("\t未找到该题目组的提交按钮")
+            log_print("\t未找到该题目组的提交按钮")
             return False
         if self.button_is_submitted(button):
             return True
-        print("\t点击「提交」...")
+        log_print("\t点击「提交」...")
         if not WebDriverHelper.safe_click(self.driver, button):
-            print("\t点击提交按钮失败")
+            log_print("\t点击提交按钮失败")
             return False
         return self.wait_graded(group, timeout, resolver)
 
@@ -8486,10 +8512,10 @@ class PublishAnswerExecutor(AnswerExecutor):
             rejection = self.rejection_message()
             if rejection:
                 self.last_rejection = rejection
-                print(f"\t平台拒绝提交：{rejection}")
+                log_print(f"\t平台拒绝提交：{rejection}")
                 return False
             interruptible_sleep(0.5)
-        print("\t提交后未检测到已批改状态，请人工确认")
+        log_print("\t提交后未检测到已批改状态，请人工确认")
         return False
 
     def dismiss_rules_popup(self, max_candidates: int = 400) -> bool:
@@ -8537,7 +8563,7 @@ class PublishAnswerExecutor(AnswerExecutor):
                     script, list(self.RULE_POPUP_TEXTS), max_candidates, True))
         except Exception:
             return False
-        print("    已关闭「本单元学习规则」弹窗")
+        log_print("    已关闭「本单元学习规则」弹窗")
         return True
 
 
@@ -8565,15 +8591,15 @@ class DiscussionBoardHandler(ContentHandler):
     def handle(self, question: Question) -> bool:
         textarea = self._find_textarea()
         if not textarea:
-            print("     讨论板未找到输入框，跳过")
+            log_print("     讨论板未找到输入框，跳过")
             return True
 
         topic = self._topic_text()
-        print(f"     讨论板发帖：{topic[:60]}")
+        log_print(f"     讨论板发帖：{topic[:60]}")
 
         body = self._compose(topic)
         if not body:
-            print("     讨论板内容生成失败，跳过")
+            log_print("     讨论板内容生成失败，跳过")
             return True
 
         try:
@@ -8593,7 +8619,7 @@ class DiscussionBoardHandler(ContentHandler):
             """, textarea, body)
             filled = True
         except Exception as exc:
-            print(f"     讨论板写入失败: {str(exc)[:50]}")
+            log_print(f"     讨论板写入失败: {str(exc)[:50]}")
         if not filled:
             textarea.send_keys(body)
 
@@ -8608,7 +8634,7 @@ class DiscussionBoardHandler(ContentHandler):
 
         submit = self._find_submit()
         if not submit:
-            print("     讨论板未找到发布按钮")
+            log_print("     讨论板未找到发布按钮")
             return False
         clicked = WebDriverHelper.safe_click(self.driver, submit)
         if not clicked:
@@ -8628,9 +8654,9 @@ class DiscussionBoardHandler(ContentHandler):
 
         self.stop_requested.wait(2.5)
         if self._posted_successfully():
-            print("     讨论板已发布")
+            log_print("     讨论板已发布")
             return True
-        print("     讨论板发布后未检测到评论，可能被限流或需要人机验证")
+        log_print("     讨论板发布后未检测到评论，可能被限流或需要人机验证")
         return False
 
     def _posted_successfully(self) -> bool:
@@ -8708,7 +8734,7 @@ class DiscussionBoardHandler(ContentHandler):
                 if answer:
                     return re.sub(r'^[\s"“”]+|[\s"“”]+$', '', answer).strip()[:1200]
             except Exception as exc:
-                print(f"     讨论板生成失败: {str(exc)[:50]}")
+                log_print(f"     讨论板生成失败: {str(exc)[:50]}")
         return ""
 
 
@@ -8728,7 +8754,7 @@ class AudioHandler(ContentHandler):
         for index, audio in enumerate(audios, 1):
             if self.stop_requested.is_set():
                 return False
-            print(f"     播放第 {index}/{len(audios)} 段音频，等待完整播放...")
+            log_print(f"     播放第 {index}/{len(audios)} 段音频，等待完整播放...")
             try:
                 self.driver.execute_script("""
                     const audio = arguments[0];
@@ -8751,22 +8777,22 @@ class AudioHandler(ContentHandler):
                     """, audio) or {}
                     current = float(state.get('time') or 0)
                     if state.get('error'):
-                        print("     音频播放失败，保留任务以便重试")
+                        log_print("     音频播放失败，保留任务以便重试")
                         return False
                     if state.get('ended') and current > 0:
-                        print(f"     第 {index} 段音频已完整播放（{current:.1f}s）")
+                        log_print(f"     第 {index} 段音频已完整播放（{current:.1f}s）")
                         break
                     if current > last_time:
                         last_time, progress_at = current, time.monotonic()
                     if time.monotonic() - progress_at > 30:
-                        print("     音频加载或播放停滞，保留任务以便重试")
+                        log_print("     音频加载或播放停滞，保留任务以便重试")
                         return False
                     if self.stop_requested.wait(0.25):
                         return False
                 else:
                     return False
             except Exception as exc:
-                print(f"     音频播放失败: {str(exc)[:80]}")
+                log_print(f"     音频播放失败: {str(exc)[:80]}")
                 return False
             finally:
                 try:
@@ -8786,7 +8812,7 @@ class SelfCheckHandler(ContentHandler):
         return question.q_type == QuestionType.SELF_CHECK
 
     def handle(self, question: Question) -> bool:
-        print("     处理 Self-check 词汇勾选表...")
+        log_print("     处理 Self-check 词汇勾选表...")
         clicked = 0
 
         row_count = len(question.element.find_elements(By.CSS_SELECTOR, 'tbody tr.ant-table-row:not(.category-name)'))
@@ -8819,22 +8845,22 @@ class SelfCheckHandler(ContentHandler):
 
                 if WebDriverHelper.safe_click(self.driver, icon):
                     clicked += 1
-                    print(f"      勾选: {word or clicked}")
+                    log_print(f"      勾选: {word or clicked}")
                 else:
                     self.driver.execute_script("""
                         arguments[0].click();
                         arguments[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
                     """, icon)
                     clicked += 1
-                    print(f"      JS勾选: {word or clicked}")
+                    log_print(f"      JS勾选: {word or clicked}")
 
                 if self.stop_requested.wait(0.1):
                     return False
             except Exception as e:
-                print(f"      勾选失败: {str(e)[:50]}")
+                log_print(f"      勾选失败: {str(e)[:50]}")
                 continue
 
-        print(f"     Self-check 完成，共勾选 {clicked} 项")
+        log_print(f"     Self-check 完成，共勾选 {clicked} 项")
         return True
 
 
@@ -8870,7 +8896,7 @@ class VideoHandler(ContentHandler):
             return False
         video_info = self._get_video_info()
         if not video_info:
-            print("      未找到视频元素")
+            log_print("      未找到视频元素")
             return False
 
         video_url = video_info.get('url', '')
@@ -8880,7 +8906,7 @@ class VideoHandler(ContentHandler):
             self.current_video_url = video_url
             self.video_transcript = ""
         if self.video_transcript:
-            print(f"      使用已缓存的视频转录（{len(self.video_transcript)}字符）")
+            log_print(f"      使用已缓存的视频转录（{len(self.video_transcript)}字符）")
         elif not self.skip_transcription:
             self.video_transcript = self._transcribe_video(video_url, duration)
         if self.stop_requested.is_set():
@@ -8889,7 +8915,7 @@ class VideoHandler(ContentHandler):
             try:
                 on_transcript(self.video_transcript)
             except Exception as exc:
-                print(f"      预取答案启动失败: {str(exc)[:60]}")
+                log_print(f"      预取答案启动失败: {str(exc)[:60]}")
         self.stop_monitoring.clear()
         handling_popup = getattr(self, '_handling_popup', None)
         if handling_popup is not None:
@@ -8903,7 +8929,7 @@ class VideoHandler(ContentHandler):
         try:
             completed = self._play_video(duration)
             if completed and not self.stop_requested.is_set():
-                print("      视频播放完成")
+                log_print("      视频播放完成")
                 return True
             return False
         finally:
@@ -8916,10 +8942,10 @@ class VideoHandler(ContentHandler):
 
     def handle(self, question: Question) -> bool:
         if self._check_video_completed():
-            print("     视频已标记为完成，跳过")
+            log_print("     视频已标记为完成，跳过")
             return True
 
-        print("     视频页面，开始处理...")
+        log_print("     视频页面，开始处理...")
         return self._play_video_and_handle_popups()
 
     def _get_video_info(self) -> Optional[Dict]:
@@ -8948,21 +8974,21 @@ class VideoHandler(ContentHandler):
         if not video_url:
             return ""
 
-        print(f"     开始识别视频音频（时长: {int(duration)}秒）...")
+        log_print(f"     开始识别视频音频（时长: {int(duration)}秒）...")
 
         try:
             transcript = self.transcriber.transcribe(video_url, language="en")
 
             if transcript:
                 preview = transcript[:200] + "..." if len(transcript) > 200 else transcript
-                print(f"     识别成功: {preview}")
+                log_print(f"     识别成功: {preview}")
                 return transcript
             else:
-                print("     未能识别音频内容")
+                log_print("     未能识别音频内容")
                 return ""
 
         except Exception as e:
-            print(f"     音频识别失败: {str(e)[:50]}")
+            log_print(f"     音频识别失败: {str(e)[:50]}")
             return ""
 
     def ensure_transcript(self, video_url: str = "") -> str:
@@ -8979,7 +9005,7 @@ class VideoHandler(ContentHandler):
             if self.video_transcript:
                 return self.video_transcript
             self.current_video_url = url
-            print("     补做视频转写...")
+            log_print("     补做视频转写...")
             self.video_transcript = self._transcribe_video(url, 0)
             return self.video_transcript
 
@@ -8989,7 +9015,7 @@ class VideoHandler(ContentHandler):
             video = self.driver.find_element(By.TAG_NAME, 'video')
 
             if duration > 0:
-                print(f"      【播放】开始播放视频（{int(duration)} 秒，2 倍速）...")
+                log_print(f"      【播放】开始播放视频（{int(duration)} 秒，2 倍速）...")
                 self.driver.execute_script("""
                     arguments[0].playbackRate = 2.0;
                     arguments[0].muted = true;
@@ -9006,7 +9032,7 @@ class VideoHandler(ContentHandler):
                 return self._wait_for_video_complete(video, duration)
 
         except Exception as e:
-            print(f"       视频播放失败: {str(e)[:50]}")
+            log_print(f"       视频播放失败: {str(e)[:50]}")
             return False
 
         finally:
@@ -9017,7 +9043,7 @@ class VideoHandler(ContentHandler):
                     log_swallowed("VideoHandler._play_video:9016")
 
     def _monitor_popup_questions(self):
-        print("      [监视器] 开始监视弹窗...")
+        log_print("      [监视器] 开始监视弹窗...")
         check_interval = 0.5
         processed_popups = set()
 
@@ -9033,7 +9059,7 @@ class VideoHandler(ContentHandler):
                             break
                         continue
 
-                    print("      [监视器]  检测到新弹窗题目！")
+                    log_print("      [监视器]  检测到新弹窗题目！")
                     handling_popup = getattr(self, '_handling_popup', None)
                     if handling_popup is not None:
                         handling_popup.set()
@@ -9041,7 +9067,7 @@ class VideoHandler(ContentHandler):
                         question_data = self._parse_popup_question(popup)
 
                         if not question_data:
-                            print("      [监视器]  未能解析题目")
+                            log_print("      [监视器]  未能解析题目")
                             continue
 
                         if question_data['options'] and not self.video_transcript:
@@ -9050,14 +9076,14 @@ class VideoHandler(ContentHandler):
                             answer = self._intelligent_select_answer(question_data)
                         else:
                             answer = self._random_select(question_data)
-                            print(f"      [监视器]  随机选择: {answer}")
+                            log_print(f"      [监视器]  随机选择: {answer}")
 
                         if self.stop_requested.is_set() or self.stop_monitoring.is_set():
                             break
                         success = self._click_option(popup, answer)
 
                         if success:
-                            print(f"      [监视器]  已选择: {answer}")
+                            log_print(f"      [监视器]  已选择: {answer}")
                             processed_popups.add(popup_id)
                             if self.stop_requested.wait(0.5) or self.stop_monitoring.is_set():
                                 break
@@ -9067,9 +9093,9 @@ class VideoHandler(ContentHandler):
                                 remaining = self._find_popup_question()
                                 if not (remaining and remaining.is_displayed()):
                                     if self._resume_video_if_paused():
-                                        print("      [监视器]  弹窗处理后已恢复视频播放")
+                                        log_print("      [监视器]  弹窗处理后已恢复视频播放")
                         else:
-                            print(f"      [监视器]  点击失败: {answer}")
+                            log_print(f"      [监视器]  点击失败: {answer}")
                     finally:
                         if handling_popup is not None:
                             handling_popup.clear()
@@ -9079,7 +9105,7 @@ class VideoHandler(ContentHandler):
 
             self.stop_monitoring.wait(check_interval)
 
-        print("      [监视器] 已停止")
+        log_print("      [监视器] 已停止")
 
     def _find_popup_question(self) -> Optional[Any]:
         selectors = [
@@ -9174,7 +9200,7 @@ class VideoHandler(ContentHandler):
             }
 
         except Exception as e:
-            print(f"      [监视器] 解析失败: {str(e)[:50]}")
+            log_print(f"      [监视器] 解析失败: {str(e)[:50]}")
             return None
 
     @staticmethod
@@ -9202,10 +9228,10 @@ class VideoHandler(ContentHandler):
         options = question_data['options']
 
         if self.analyzer_client is None:
-            print("      [监视器] 未配置 AI 接口，使用关键词匹配")
+            log_print("      [监视器] 未配置 AI 接口，使用关键词匹配")
             return self._keyword_match(question, options)
 
-        print(f"      [监视器]  分析问题: {question[:50]}...")
+        log_print(f"      [监视器]  分析问题: {question[:50]}...")
         prompt = self._build_analysis_prompt(question, options)
 
         configured_model = getattr(self.config, 'model', '') or 'kimi-k2-turbo-preview'
@@ -9235,13 +9261,13 @@ class VideoHandler(ContentHandler):
             valid_letters = [opt['letter'] for opt in options]
             letter = self._extract_popup_answer(answer_text, valid_letters)
             if letter:
-                print(f"      [监视器]  AI选择: {letter}")
+                log_print(f"      [监视器]  AI选择: {letter}")
                 return letter
 
             return self._keyword_match(question, options)
 
         except Exception as e:
-            print(f"      [监视器]  AI分析失败: {str(e)[:50]}，使用关键词匹配")
+            log_print(f"      [监视器]  AI分析失败: {str(e)[:50]}，使用关键词匹配")
             return self._keyword_match(question, options)
 
     def _build_analysis_prompt(self, question: str, options: List[Dict]) -> str:
@@ -9291,7 +9317,7 @@ class VideoHandler(ContentHandler):
                 best_option = opt
 
         if best_option:
-            print(f"      [监视器]  关键词匹配: {best_option['letter']} (得分: {best_score})")
+            log_print(f"      [监视器]  关键词匹配: {best_option['letter']} (得分: {best_score})")
             return best_option['letter']
 
         return options[0]['letter'] if options else "A"
@@ -9355,7 +9381,7 @@ class VideoHandler(ContentHandler):
             return False
 
         except Exception as e:
-            print(f"      [监视器] 点击失败: {str(e)[:50]}")
+            log_print(f"      [监视器] 点击失败: {str(e)[:50]}")
             return False
 
     def _click_submit_if_exists(self, popup):
@@ -9370,7 +9396,7 @@ class VideoHandler(ContentHandler):
                 btn = popup.find_element(By.CSS_SELECTOR, selector)
                 if btn.is_displayed():
                     btn.click()
-                    print("      [监视器]  已提交")
+                    log_print("      [监视器]  已提交")
                     return True
             except Exception:
                 log_swallowed("VideoHandler._click_submit_if_exists:9375"); continue
@@ -9430,7 +9456,7 @@ class VideoHandler(ContentHandler):
                 ended = self.driver.execute_script("return arguments[0].ended;", video)
 
                 if ended:
-                    print(f"       视频播放完成")
+                    log_print(f"       视频播放完成")
                     return True
 
                 if not duration or duration <= 0:
@@ -9454,12 +9480,12 @@ class VideoHandler(ContentHandler):
                             popup = None
                         if not (popup and popup.is_displayed()):
                             if self._resume_video_if_paused(video):
-                                print("      检测到视频已暂停，已尝试恢复播放")
+                                log_print("      检测到视频已暂停，已尝试恢复播放")
                     stall_since = now
 
                 elapsed = int(time.time() - start_time - popup_paused_total)
                 if elapsed - last_progress >= 5:
-                    print(f"      播放进度: {int(current)}/{int(duration)} 秒")
+                    log_print(f"      播放进度: {int(current)}/{int(duration)} 秒")
                     last_progress = elapsed
 
                 if self.stop_requested.wait(0.5):
@@ -9494,7 +9520,7 @@ class FlashcardHandler(ContentHandler):
         return question.q_type == QuestionType.VOCABULARY_FLASHCARD
 
     def handle(self, question: Question) -> bool:
-        print("     处理单词闪卡...")
+        log_print("     处理单词闪卡...")
         max_cards = 100
         clicked = 0
         if self.stop_requested.wait(2):
@@ -9505,10 +9531,10 @@ class FlashcardHandler(ContentHandler):
             try:
                 next_btn = self._find_next_button()
                 if not next_btn:
-                    print(f"      未找到下一个按钮，可能已完成（已点击{clicked}个）")
+                    log_print(f"      未找到下一个按钮，可能已完成（已点击{clicked}个）")
                     break
                 if not next_btn.is_displayed() or not next_btn.is_enabled():
-                    print(f"      按钮不可用，完成")
+                    log_print(f"      按钮不可用，完成")
                     break
                 try:
                     disabled_next_button = self.driver.find_element(By.CSS_SELECTOR, '.action.next.disabled')
@@ -9531,16 +9557,16 @@ class FlashcardHandler(ContentHandler):
                     return False
                 current_word = self.driver.find_element(By.XPATH,
                                                         '//*[@id="question-vocabulary-base-id"]/div/div[2]/div')
-                print(f" 学习{current_word.text}")
+                log_print(f" 学习{current_word.text}")
             except Exception as e:
                 error_msg = str(e)
-                print(f"      处理闪卡失败: {error_msg[:50]}")
+                log_print(f"      处理闪卡失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
                 if self.stop_requested.wait(1):
                     return False
                 continue
 
-        print(f"     单词闪卡完成，共 {clicked} 个")
+        log_print(f"     单词闪卡完成，共 {clicked} 个")
         return True
 
     def _find_next_button(self):
@@ -9687,7 +9713,7 @@ def _wait_for_unit_container(driver, course_home_url: str, stop_requested=None,
             body_head = state.get('body_head') if isinstance(state, dict) else ''
             last_summary = (body_head or state.get('title') or state.get('url') or '未知状态')[:60]
             if attempt < max_attempts:
-                print(f"    课程目录未加载完成（第 {attempt}/{max_attempts} 次，页面状态: {last_summary}），"
+                log_print(f"    课程目录未加载完成（第 {attempt}/{max_attempts} 次，页面状态: {last_summary}），"
                       f"重新加载目录页...")
     raise TimeoutException(f"课程目录加载超时（已尝试 {max_attempts} 次，页面状态: {last_summary}）")
 
@@ -10002,9 +10028,9 @@ class AISolver:
         if not chapter_name:
             chapter_name = "selected_chapter"
 
-        print(f"\n{'=' * 60}")
-        print(f"开始处理 {len(selected_tabs)} 个选中任务")
-        print(f"{'=' * 60}")
+        log_print(f"\n{'=' * 60}")
+        log_print(f"开始处理 {len(selected_tabs)} 个选中任务")
+        log_print(f"{'=' * 60}")
 
         self.ai_client.start_new_chapter(chapter_name)
         self.processed_hashes.clear()
@@ -10021,20 +10047,20 @@ class AISolver:
 
         for task_idx, tab in enumerate(selected_tabs):
             if self._should_stop():
-                print("  已请求停止，批量处理提前结束")
+                log_print("  已请求停止，批量处理提前结束")
                 break
 
             task_label = tab.get('display') or tab.get('l1_title', '')
-            print(f"\n  [{task_idx + 1}/{len(selected_tabs)}] {task_label}")
+            log_print(f"\n  [{task_idx + 1}/{len(selected_tabs)}] {task_label}")
             try:
                 status = self._process_selected_tab(tab, task_idx, len(selected_tabs), chapter_name, course_home_url)
             except Exception as exc:
                 if AISolver._is_fatal_driver_error(exc):
-                    print(f"  浏览器连接异常，已中断批量处理；剩余勾选保持原样: {str(exc)[:120]}")
+                    log_print(f"  浏览器连接异常，已中断批量处理；剩余勾选保持原样: {str(exc)[:120]}")
                     logger.error(f"浏览器连接中断: {exc}", exc_info=True)
                     aborted = True
                     break
-                print(f"  该任务处理异常，已保留勾选，继续处理剩余任务: {str(exc)[:120]}")
+                log_print(f"  该任务处理异常，已保留勾选，继续处理剩余任务: {str(exc)[:120]}")
                 logger.error(f"任务处理异常: {exc}", exc_info=True)
                 status = 'error'
 
@@ -10049,7 +10075,7 @@ class AISolver:
                             break
                         score = self._read_task_score()
                         if score is not None:
-                            print(f"  朗读评分已返回: {score:g}")
+                            log_print(f"  朗读评分已返回: {score:g}")
                             break
                 retries = 0
                 retry_status = status
@@ -10057,7 +10083,7 @@ class AISolver:
                     retries += 1
                     hint = self._read_answer_analysis()
                     self._retry_hint = hint
-                    print(f"  本次得分 {score:g} 偏低，"
+                    log_print(f"  本次得分 {score:g} 偏低，"
                           f"{'使用答案解析' if hint else '用 AI 重做'}（第 {retries}/3 次）")
                     logger.warning("分数异常重试 %s: %.1f -> %s", tab.get('display'), score,
                                    '答案解析' if hint else 'AI 重做')
@@ -10079,11 +10105,11 @@ class AISolver:
                     score = self._read_task_score()
 
                 if retry_status != 'done':
-                    print(f"  重做未完成（{retry_status}），保留任务状态，不标记完成")
+                    log_print(f"  重做未完成（{retry_status}），保留任务状态，不标记完成")
                     logger.warning("分数异常重做未完成 %s: status=%s",
                                    tab.get('display'), retry_status)
                     if aborted:
-                        print("  浏览器连接异常，已中断批量处理；剩余勾选保持原样")
+                        log_print("  浏览器连接异常，已中断批量处理；剩余勾选保持原样")
                         break
                     if retry_status == 'stopped':
                         break
@@ -10093,7 +10119,7 @@ class AISolver:
                         tab['status_text'] = '重做失败'
                         tab['score_abnormal'] = True
                         failed_tasks.append(task_label)
-                        print("  重做未完成，已保留勾选，继续处理剩余任务")
+                        log_print("  重做未完成，已保留勾选，继续处理剩余任务")
                 else:
                     done_count += 1
                     tab['status'] = 'done'
@@ -10101,75 +10127,75 @@ class AISolver:
                     tab['session_score'] = score
                     if score is not None:
                         tab['score'] = score
-                        print(f"  本次得分 {score:g}")
+                        log_print(f"  本次得分 {score:g}")
                     if score is not None and self._score_is_abnormal(score):
                         tab['score_abnormal'] = True
                         logger.error("任务分数仍异常 %s: %.1f（已重试 %d 次）",
                                      tab.get('display'), score, retries)
-                        print(f"  分数仍异常，标记红色并跳到下一题")
+                        log_print(f"  分数仍异常，标记红色并跳到下一题")
                     else:
                         tab['score_abnormal'] = False
                     if on_task_done:
                         try:
                             on_task_done(tab)
                         except Exception as exc:
-                            print(f"  完成回调异常: {str(exc)[:60]}")
+                            log_print(f"  完成回调异常: {str(exc)[:60]}")
             elif status == 'skipped_no_answer':
                 tab['skip_reason'] = 'no_answer'
                 skipped_tasks.append(task_label)
-                print("  已跳过无需作答页面并取消勾选，继续处理剩余任务")
+                log_print("  已跳过无需作答页面并取消勾选，继续处理剩余任务")
                 if on_task_skipped:
                     try:
                         on_task_skipped(tab)
                     except Exception as exc:
-                        print(f"  跳过回调异常: {str(exc)[:60]}")
+                        log_print(f"  跳过回调异常: {str(exc)[:60]}")
             elif status == 'skipped_record':
                 tab['skip_reason'] = 'record'
                 skipped_tasks.append(task_label)
-                print("  已跳过跟读/录音任务并取消本次勾选（保留未完成状态），继续处理剩余任务")
+                log_print("  已跳过跟读/录音任务并取消本次勾选（保留未完成状态），继续处理剩余任务")
                 if on_task_skipped:
                     try:
                         on_task_skipped(tab)
                     except Exception as exc:
-                        print(f"  跳过回调异常: {str(exc)[:60]}")
+                        log_print(f"  跳过回调异常: {str(exc)[:60]}")
             elif status == 'skipped_no_ai':
                 tab['skip_reason'] = 'no_ai'
                 skipped_tasks.append(task_label)
-                print("  未配置 AI 接口，已跳过需 AI 作答的任务并取消本次勾选（保留未完成状态），继续处理剩余任务")
+                log_print("  未配置 AI 接口，已跳过需 AI 作答的任务并取消本次勾选（保留未完成状态），继续处理剩余任务")
                 if on_task_skipped:
                     try:
                         on_task_skipped(tab)
                     except Exception as exc:
-                        print(f"  跳过回调异常: {str(exc)[:60]}")
+                        log_print(f"  跳过回调异常: {str(exc)[:60]}")
             elif status == 'skipped':
                 skipped_tasks.append(task_label)
-                print("  已跳过当前任务，继续处理剩余任务")
+                log_print("  已跳过当前任务，继续处理剩余任务")
             elif status == 'stopped':
                 break
             elif status == 'error':
                 failed_tasks.append(task_label)
-                print("  该任务未确认完成，已保留勾选，继续处理剩余任务")
+                log_print("  该任务未确认完成，已保留勾选，继续处理剩余任务")
 
             if self.stop_requested.wait(0.5):
                 break
 
         self._release_transcriber()
 
-        print(f"\n{'=' * 60}")
+        log_print(f"\n{'=' * 60}")
         if self._should_stop():
-            print("批量处理已停止")
+            log_print("批量处理已停止")
         elif aborted:
-            print("已中断批量处理；剩余勾选保持原样，可直接从这里继续")
+            log_print("已中断批量处理；剩余勾选保持原样，可直接从这里继续")
         else:
-            print(f"全部 {len(selected_tabs)} 个任务处理完毕"
+            log_print(f"全部 {len(selected_tabs)} 个任务处理完毕"
                   f"（完成 {done_count} / 跳过 {len(skipped_tasks)} / 未确认 {len(failed_tasks)}）")
         if skipped_tasks:
-            print(f"  已跳过 {len(skipped_tasks)} 项: {'；'.join(skipped_tasks[:8])}"
+            log_print(f"  已跳过 {len(skipped_tasks)} 项: {'；'.join(skipped_tasks[:8])}"
                   f"{' …' if len(skipped_tasks) > 8 else ''}")
         if failed_tasks:
-            print(f"  未确认完成 {len(failed_tasks)} 项（已保留勾选）: {'；'.join(failed_tasks[:8])}"
+            log_print(f"  未确认完成 {len(failed_tasks)} 项（已保留勾选）: {'；'.join(failed_tasks[:8])}"
                   f"{' …' if len(failed_tasks) > 8 else ''}")
-        print(f"{'=' * 60}")
+        log_print(f"{'=' * 60}")
 
     def _score_is_abnormal(self, score: float) -> bool:
         types = getattr(self, '_last_question_types', set())
@@ -10253,14 +10279,14 @@ class AISolver:
                     else:
                         unit_index = tab['_unit_idx']
                     if unit_index < 0 or unit_index >= len(unit_tabs):
-                        print("    目标Unit不存在，跳过")
+                        log_print("    目标Unit不存在，跳过")
                         return 'skipped'
                     if self._should_stop():
                         return 'stopped'
                     select_course_unit(self.driver, unit_tabs[unit_index], self.stop_requested)
                 except Exception as e:
                     err_summary = _format_webdriver_error(e, self.driver)
-                    print(f"    切换Unit失败: {err_summary}")
+                    log_print(f"    切换Unit失败: {err_summary}")
                     logger.warning(f"切换Unit失败 ({tab.get('display') or tab_name}): {err_summary}")
                     return 'skipped'
 
@@ -10287,7 +10313,7 @@ class AISolver:
                         if name_elem.text.strip() == tab_name:
                             if name_occurrence == tab.get('_name_occurrence', 0):
                                 if dom_index not in matching_indices:
-                                    print("    任务所在章节与扫描结果不一致，跳过")
+                                    log_print("    任务所在章节与扫描结果不一致，跳过")
                                     return 'skipped'
                                 self.driver.execute_script("arguments[0].click();", name_elem)
                                 chapter_clicked = True
@@ -10296,12 +10322,12 @@ class AISolver:
                     except Exception:
                         log_swallowed("AISolver._process_selected_tab:10296"); continue
             except Exception as e:
-                print(f"    重新定位章节失败: {_format_webdriver_error(e, self.driver)}")
+                log_print(f"    重新定位章节失败: {_format_webdriver_error(e, self.driver)}")
 
             if self._should_stop():
                 return 'stopped'
             if not chapter_clicked:
-                print("  点击章节失败，跳过")
+                log_print("  点击章节失败，跳过")
                 return 'skipped'
             if self.stop_requested.wait(3):
                 return 'stopped'
@@ -10317,16 +10343,16 @@ class AISolver:
 
         level1_tabs = self._get_level1_tabs()
         if l1_idx >= len(level1_tabs):
-            print(f"  一级Tab索引 {l1_idx} 越界，跳过")
+            log_print(f"  一级Tab索引 {l1_idx} 越界，跳过")
             return 'skipped'
 
         l1_tab = level1_tabs[l1_idx]
-        print(f"    一级Tab: {l1_tab['title']}")
+        log_print(f"    一级Tab: {l1_tab['title']}")
 
         if self._should_stop():
             return 'stopped'
         if not WebDriverHelper.safe_click(self.driver, l1_tab['element']):
-            print(f"  点击一级Tab失败，跳过")
+            log_print(f"  点击一级Tab失败，跳过")
             return 'skipped'
         if self.stop_requested.wait(1.5):
             return 'stopped'
@@ -10340,16 +10366,16 @@ class AISolver:
 
         level2_tabs = self._get_level2_tabs()
         if l2_idx >= len(level2_tabs):
-            print(f"  二级Tab索引 {l2_idx} 越界，跳过")
+            log_print(f"  二级Tab索引 {l2_idx} 越界，跳过")
             return 'skipped'
 
         l2_tab = level2_tabs[l2_idx]
-        print(f"    二级Tab: {l2_tab['title']}")
+        log_print(f"    二级Tab: {l2_tab['title']}")
 
         if self._should_stop():
             return 'stopped'
         if not WebDriverHelper.safe_click(self.driver, l2_tab['element']):
-            print(f"  点击二级Tab失败，跳过")
+            log_print(f"  点击二级Tab失败，跳过")
             return 'skipped'
         if self.stop_requested.wait(1.5):
             return 'stopped'
@@ -10367,7 +10393,7 @@ class AISolver:
             return False
         filled = 0
         used_answers: List[str] = []
-        print(f"    空位较多（{total} 个），拆成每 {chunk_size} 空一批作答")
+        log_print(f"    空位较多（{total} 个），拆成每 {chunk_size} 空一批作答")
 
         pending = [(start, min(start + chunk_size, total)) for start in range(0, total, chunk_size)]
         corpus = q.text or ""
@@ -10417,7 +10443,7 @@ class AISolver:
             if not response:
                 if end - start > 2:
                     mid = (start + end) // 2
-                    print(f"    第 {start + 1}-{end} 空无答案，拆成两批重试")
+                    log_print(f"    第 {start + 1}-{end} 空无答案，拆成两批重试")
                     pending[0:0] = [(start, mid), (mid, end)]
                 else:
                     retry_prompt = (f"【填空】请只回答第 {start + 1}-{end} 空，"
@@ -10428,7 +10454,7 @@ class AISolver:
                     response = self.ai_client.ask(retry_prompt, retry_count=1,
                                                   stop_requested=self.stop_requested)
                 if not response:
-                    print(f"    第 {start + 1}-{end} 空未拿到答案，跳过")
+                    log_print(f"    第 {start + 1}-{end} 空未拿到答案，跳过")
                     continue
 
             mapping = self._parse_numbered_map(response)
@@ -10461,8 +10487,8 @@ class AISolver:
                         filled += 1
                         used_answers.append(orig_clean)
                 except Exception as exc:
-                    print(f"    空{global_no} 写入失败: {str(exc)[:50]}")
-            print(f"    第 {start + 1}-{end} 空已处理（累计 {filled}/{total}）")
+                    log_print(f"    空{global_no} 写入失败: {str(exc)[:50]}")
+            log_print(f"    第 {start + 1}-{end} 空已处理（累计 {filled}/{total}）")
 
         return filled == total
 
@@ -10502,16 +10528,16 @@ class AISolver:
         except Exception:
             resource_id = ""
         if not resource_id:
-            print("    搭配学习页：当前页没有 courseResourceId，跳过")
+            log_print("    搭配学习页：当前页没有 courseResourceId，跳过")
             return False
 
         unit_label = self._unit_label_from_page()
         if not unit_label:
-            print("    搭配学习页：认不出当前单元，跳过")
+            log_print("    搭配学习页：认不出当前单元，跳过")
             return False
 
         directory_url = f"https://ucloud.unipus.cn/app/cmgt/resource-detail/{resource_id}"
-        print(f"    搭配学习页：当前单元 {unit_label}，准备读取同单元 Learning 页")
+        log_print(f"    搭配学习页：当前单元 {unit_label}，准备读取同单元 Learning 页")
         try:
             self._context_reference_text = self.driver.find_element(By.TAG_NAME, 'body').text or ""
         except Exception:
@@ -10557,7 +10583,7 @@ class AISolver:
                                              or probe.startswith(title_part[:10])):
                     return match.group(1)
         if items:
-            print(f"    搭配学习页：侧栏单元标题没对上（{unit_title or '无面包屑'}），候选: {items[:6]}")
+            log_print(f"    搭配学习页：侧栏单元标题没对上（{unit_title or '无面包屑'}），候选: {items[:6]}")
         return ""
 
     def _ensure_reading_context_for_ai(self) -> bool:
@@ -10627,12 +10653,12 @@ class AISolver:
             interruptible_sleep(4)
 
         if len(text) < 120:
-            print("    搭配学习页：Learning 页没抓到内容，跳过")
+            log_print("    搭配学习页：Learning 页没抓到内容，跳过")
             return False
 
         self._inline_learning_chars = len(text)
         self.ai_client.add_passage_if_new(text)
-        print(f"    搭配学习页：当前页切到 Learning 抓到 {len(text)} 字符，已加入上下文")
+        log_print(f"    搭配学习页：当前页切到 Learning 抓到 {len(text)} 字符，已加入上下文")
         return True
 
     def _load_reading_context(self, directory_url: str, unit_idx: Optional[int] = None,
@@ -10640,7 +10666,7 @@ class AISolver:
         if self._load_learning_inline():
             if getattr(self, '_inline_learning_chars', 0) >= 400:
                 return True
-            print("    搭配学习页：Learning 内容太短，改用同单元 Reading the text 兜底")
+            log_print("    搭配学习页：Learning 内容太短，改用同单元 Reading the text 兜底")
         if not directory_url or (unit_idx is None and not unit_label):
             return False
         if (getattr(self, '_loaded_reading_units', None) is None
@@ -10682,7 +10708,7 @@ class AISolver:
                 return True
 
             if not open_unit():
-                print(f"    搭配学习页：目录里找不到 {unit_label or unit_idx}，跳过")
+                log_print(f"    搭配学习页：目录里找不到 {unit_label or unit_idx}，跳过")
                 return False
 
             candidates = self.driver.execute_script("""
@@ -10713,12 +10739,12 @@ class AISolver:
                 if filtered:
                     candidates = filtered
                 else:
-                    print(f"    搭配学习页：没有 section 为「{section_filter}」的 Learning，改用全部候选")
+                    log_print(f"    搭配学习页：没有 section 为「{section_filter}」的 Learning，改用全部候选")
 
             if not candidates:
-                print("    搭配学习页：本单元没有 Collocation / Learning，跳过")
+                log_print("    搭配学习页：本单元没有 Collocation / Learning，跳过")
                 return False
-            print(f"    搭配学习页：本单元有 {len(candidates)} 个候选 Learning，按内容匹配挑一个")
+            log_print(f"    搭配学习页：本单元有 {len(candidates)} 个候选 Learning，按内容匹配挑一个")
 
             reference = self._context_reference_tokens()
             best_text, best_score, best_path = "", -1.0, ""
@@ -10748,22 +10774,22 @@ class AISolver:
                 if len(text) < 120:
                     continue
                 score = self._text_overlap(reference, text)
-                print(f"      候选 {cand['path']} → 重合度 {score:.2f}（{len(text)} 字符）")
+                log_print(f"      候选 {cand['path']} → 重合度 {score:.2f}（{len(text)} 字符）")
                 if score > best_score:
                     best_text, best_score, best_path = text, score, cand['path']
                 if score >= 0.35:
                     break
 
             if not best_text:
-                print("    搭配学习页：没抓到有效正文，跳过")
+                log_print("    搭配学习页：没抓到有效正文，跳过")
                 return False
 
             self.ai_client.add_passage_if_new(best_text)
-            print(f"    搭配学习页：采用 {best_path}（重合度 {best_score:.2f}，{len(best_text)} 字符）")
+            log_print(f"    搭配学习页：采用 {best_path}（重合度 {best_score:.2f}，{len(best_text)} 字符）")
             self._loaded_reading_units.add(cache_key)
             return True
         except Exception as exc:
-            print(f"    搭配学习页读取失败（不影响作答）: {str(exc)[:80]}")
+            log_print(f"    搭配学习页读取失败（不影响作答）: {str(exc)[:80]}")
             return False
         finally:
             try:
@@ -10834,15 +10860,15 @@ class AISolver:
         if current is None or title_of(current) == 'vocabulary':
             return False
 
-        print("    缓存里没有 Vocabulary 对照表，先切过去抓一遍...")
+        log_print("    缓存里没有 Vocabulary 对照表，先切过去抓一遍...")
         if not WebDriverHelper.safe_click(self.driver, vocab_tab['element']):
-            print("    切换 Vocabulary 失败，继续用模型作答")
+            log_print("    切换 Vocabulary 失败，继续用模型作答")
             return False
         if self.stop_requested.wait(2.5):
             return None
         self._harvest_vocabulary()
         if not WebDriverHelper.safe_click(self.driver, current['element']):
-            print("    切回原标签失败，请留意页面是否停在 Vocabulary")
+            log_print("    切回原标签失败，请留意页面是否停在 Vocabulary")
             return None
         if self.stop_requested.wait(2.0):
             return None
@@ -10860,7 +10886,7 @@ class AISolver:
             return 0
         added = self._vocab().add_rows(rows)
         if added:
-            print(f"    词汇表更新 {added} 条（累计 {len(self._vocab())} 条）")
+            log_print(f"    词汇表更新 {added} 条（累计 {len(self._vocab())} 条）")
         return added
 
     def _speaking_script_for(self, q: Question, directions: str = "") -> str:
@@ -10873,28 +10899,28 @@ class AISolver:
         screenshot = None
         if images:
             if not self.config.screenshot:
-                print("    口语题需要识别图片，请在配置中启用截图并使用支持图片的模型")
+                log_print("    口语题需要识别图片，请在配置中启用截图并使用支持图片的模型")
                 return ""
             try:
                 screenshot = images[0].screenshot_as_png
             except Exception:
-                print("    口语题图片截图失败，停止作答")
+                log_print("    口语题图片截图失败，停止作答")
                 return ""
             if not screenshot:
-                print("    口语题图片截图为空，停止作答")
+                log_print("    口语题图片截图为空，停止作答")
                 return ""
         prompt = self.prompt_builder.build_speaking_script(
             q, directions, target_seconds=self.executor.RECORD_MAX_SECONDS * 0.85)
         response = self.ai_client.ask(prompt, stop_requested=self.stop_requested,
                                       screenshot=screenshot, require_image=bool(images))
         if not response or self._should_stop():
-            print(f"    题目 {q.number}: 没有拿到口语稿")
+            log_print(f"    题目 {q.number}: 没有拿到口语稿")
             return ""
         script = self._clean_speech_script(response)
         if not script:
-            print(f"    题目 {q.number}: 口语稿清洗后为空")
+            log_print(f"    题目 {q.number}: 口语稿清洗后为空")
         else:
-            print(f"    题目 {q.number}: 口语稿 {len(script.split())} 词")
+            log_print(f"    题目 {q.number}: 口语稿 {len(script.split())} 词")
         return script
 
     @staticmethod
@@ -10937,7 +10963,7 @@ class AISolver:
                 if ans and self.executor.execute(q, ans):
                     repaired += 1
             except Exception as exc:
-                print(f"    修正题目 {q.number} 失败: {str(exc)[:60]}")
+                log_print(f"    修正题目 {q.number} 失败: {str(exc)[:60]}")
         return repaired
 
     def _is_skipped_record_only_page(self) -> bool:
@@ -10957,7 +10983,7 @@ class AISolver:
         if self._should_stop():
             return False
         if self._is_publish_page():
-            print("    检测到新版 ipublish 播放器，跳过旧版音视频预处理")
+            log_print("    检测到新版 ipublish 播放器，跳过旧版音视频预处理")
             return self._process_current_tab_content(
                 self.ai_client.current_chapter_id or "unknown", tab_name, l1_idx, l2_idx
             )
@@ -10971,7 +10997,7 @@ class AISolver:
         official_covers = self._answer_api_covers_current_page()
         if official_covers or not self._ai_available():
             if official_covers and (self._has_video_on_page() or self._has_audio_on_page()):
-                print("    本页客观题已命中官方答案，跳过音视频转写与 AI 预取")
+                log_print("    本页客观题已命中官方答案，跳过音视频转写与 AI 预取")
             if self._has_video_on_page():
                 if not self._preprocess_video_if_needed(
                         tab_name, l1_idx, l2_idx, skip_transcription=True):
@@ -11034,7 +11060,7 @@ class AISolver:
             if self.parser.incomplete:
                 return None
         except Exception as exc:
-            print(f"    预取解析题目失败: {str(exc)[:60]}")
+            log_print(f"    预取解析题目失败: {str(exc)[:60]}")
             return None
         excluded = {
             QuestionType.VIDEO, QuestionType.AUDIO,
@@ -11062,7 +11088,7 @@ class AISolver:
         if not prompt:
             return None
         shot = self._question_screenshot(questions)
-        print(f"    后台预取答案（{len(questions)} 题，与视频播放并行）...")
+        log_print(f"    后台预取答案（{len(questions)} 题，与视频播放并行）...")
         return AnswerPrefetch(self.ai_client, prompt, shot, self.stop_requested,
                               require_image=self._requires_image_context(questions))
 
@@ -11103,7 +11129,7 @@ class AISolver:
             return order
         corrected = sorted(order, key=lambda letter: positions[letter])
         if corrected != order:
-            print(f"    按原文顺序校正排序: {order} -> {corrected}")
+            log_print(f"    按原文顺序校正排序: {order} -> {corrected}")
         return corrected
 
     def _keyword_positions(self, corpus: str, q: Question, order: List[str]) -> Dict[str, int]:
@@ -11194,13 +11220,13 @@ class AISolver:
             ready = provider.prepare(driver=self.driver,
                                      candidates=self._answer_api_url_candidates())
         except Exception as exc:
-            print(f"    官方答案接口准备失败：{str(exc)[:80]}，继续使用 AI")
+            log_print(f"    官方答案接口准备失败：{str(exc)[:80]}，继续使用 AI")
             return False
         if ready:
             return True
         reason = str(getattr(provider, 'reason', '') or '')
         if task_label and reason and '未能从当前地址解析任务' not in reason:
-            print(f"    {task_label}：官方答案接口未命中（{reason}），继续使用 AI")
+            log_print(f"    {task_label}：官方答案接口未命中（{reason}），继续使用 AI")
         return False
 
     def _answer_api_choice_letter(self, question: Question, value: str) -> str:
@@ -11493,7 +11519,7 @@ class AISolver:
         used = int(stats.get('used', 0) or 0)
         fallback = int(stats.get('fallback', 0) or 0)
         if used or fallback:
-            print(f"    官方答案接口：直接作答 {used} 个大题，回落 AI {fallback} 次")
+            log_print(f"    官方答案接口：直接作答 {used} 个大题，回落 AI {fallback} 次")
 
     def _split_record_questions(self, questions):
         """按题型把本页题目分组：普通题 / 录音题 / 按配置跳过的录音题。
@@ -11545,10 +11571,10 @@ class AISolver:
                     return "stop", None
                 if handler.can_handle(q):
                     if q.q_type == QuestionType.DISCUSSION_BOARD and not self._ai_available():
-                        print("    讨论区发帖需要 AI 作答，但未配置 AI 接口，跳过该任务")
+                        log_print("    讨论区发帖需要 AI 作答，但未配置 AI 接口，跳过该任务")
                         self._last_tab_outcome = 'skipped_no_ai'
                         return "stop", None
-                    print(f"     使用 {handler.__class__.__name__} 处理")
+                    log_print(f"     使用 {handler.__class__.__name__} 处理")
                     handled = handler.handle(q)
                     if not handled or self._should_stop():
                         return "stop", None
@@ -11561,11 +11587,11 @@ class AISolver:
                     if q.q_type == QuestionType.SELF_CHECK:
                         self_check_handled = True
                     if q.q_type in [QuestionType.VOCABULARY_FLASHCARD, QuestionType.VIDEO]:
-                        print(f"    特殊内容处理完成")
+                        log_print(f"    特殊内容处理完成")
                         self.processed_hashes.add(content_hash)
                         return "done", None
                     if q.q_type == QuestionType.DISCUSSION_BOARD:
-                        print(f"    讨论区已处理")
+                        log_print(f"    讨论区已处理")
                         self.processed_hashes.add(content_hash)
                         return "done", None
                     break
@@ -11581,20 +11607,20 @@ class AISolver:
         """
         if not next_btn:
             return "none", None
-        print(f"    点击下一题...")
+        log_print(f"    点击下一题...")
         if self._should_stop():
             return "stop", None
         if not WebDriverHelper.safe_click(self.driver, next_btn):
-            print(f"    点击下一题失败")
+            log_print(f"    点击下一题失败")
             return "stop", None
         if not self._wait_for_content_change(current_signature, timeout=30):
             if self._should_stop():
                 return "stop", None
-            print(f"    内容未变化，未确认翻页完成")
+            log_print(f"    内容未变化，未确认翻页完成")
             return "stop", None
         page_num += 1
         if page_num > 50:
-            print(f"    达到最大页数限制，停止")
+            log_print(f"    达到最大页数限制，停止")
             return "stop", None
         return "next", page_num
 
@@ -11631,19 +11657,19 @@ class AISolver:
                 total_questions = len(normal_questions)
                 prefetch = None
 
-        print(f"    本页 {len(active_records)} 道录音题，开始逐条录音...")
+        log_print(f"    本页 {len(active_records)} 道录音题，开始逐条录音...")
         record_answered = 0
         for q in active_records:
             if self._should_stop():
                 return "stop", None
             needs_tts = q.needs_speech_script or q.q_type == QuestionType.ORAL_ALOUD
             if needs_tts and not self._tts().enabled:
-                print("    录音题没有原声，TTS 已关闭，跳过该题")
+                log_print("    录音题没有原声，TTS 已关闭，跳过该题")
                 continue
             script = ""
             if q.q_type == QuestionType.RECORD and q.needs_speech_script:
                 if not self._ai_available():
-                    print("    主观口语题需要 AI 写稿，但未配置 AI 接口，跳过该任务")
+                    log_print("    主观口语题需要 AI 写稿，但未配置 AI 接口，跳过该任务")
                     self._last_tab_outcome = 'skipped_no_ai'
                     return "stop", None
                 script = self._speaking_script_for(q, directions)
@@ -11651,9 +11677,9 @@ class AISolver:
                     continue
             if self.executor.execute(q, script):
                 record_answered += 1
-        print(f"    录音题完成 {record_answered}/{len(active_records)}")
+        log_print(f"    录音题完成 {record_answered}/{len(active_records)}")
         if record_answered < len(active_records):
-            print("    录音题未完成，停止当前页")
+            log_print("    录音题未完成，停止当前页")
             return "stop", None
         normal_questions = [q for q in normal_questions
                             if q.q_type not in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
@@ -11669,7 +11695,7 @@ class AISolver:
           ("ok", (success_count, normal_questions, prefetch)) → 外层累加计数并继续
         total_answered 的累加刻意留在调用方，避免把页面级计数耦合进本方法。
         """
-        print(f"    共 {total_questions} 道题目需要回答")
+        log_print(f"    共 {total_questions} 道题目需要回答")
         success_count = record_answered
 
         # 官方答案接口命中时跳过 AI，并接入目标正确率控分（以官方答案为基准）
@@ -11694,18 +11720,18 @@ class AISolver:
             finally:
                 self.executor._exact_official_mode = False
             if filled_official == len(normal_questions):
-                print(f"    本页 {filled_official} 题已使用官方答案填写，跳过 AI")
+                log_print(f"    本页 {filled_official} 题已使用官方答案填写，跳过 AI")
                 success_count += filled_official
                 normal_questions = []
                 prefetch = None
             else:
-                print(f"    官方答案仅写入 {filled_official}/{len(normal_questions)} 题，"
+                log_print(f"    官方答案仅写入 {filled_official}/{len(normal_questions)} 题，"
                       f"本页改回 AI 流程")
 
         # 仅在未命中官方答案、确实要走 AI 流程时，才补抓隔壁原文 / 词汇表 / 音视频转写
         if normal_questions:
             if not self._ai_available():
-                print("    本页未能通过官方答案完成且未配置 AI 接口，跳过该任务")
+                log_print("    本页未能通过官方答案完成且未配置 AI 接口，跳过该任务")
                 self._last_tab_outcome = 'skipped_no_ai'
                 return "stop", None
             dom_refreshed = False
@@ -11722,7 +11748,7 @@ class AISolver:
             if dom_refreshed:
                 questions, directions = self.parser.parse_all()
                 if self.parser.incomplete:
-                    print("    本页有交互题未能解析，停止当前任务")
+                    log_print("    本页有交互题未能解析，停止当前任务")
                     return "stop", None
                 if self._should_stop():
                     return "stop", None
@@ -11736,7 +11762,7 @@ class AISolver:
                     QuestionType.ORAL_ALOUD,
                 ]]
                 if prefetch is not None:
-                    print("    上下文页面切换后，放弃预取答案")
+                    log_print("    上下文页面切换后，放弃预取答案")
                     prefetch = None
             if self._has_video_on_page():
                 if not self._preprocess_video_if_needed(tab_name, l1_idx, l2_idx,
@@ -11772,12 +11798,12 @@ class AISolver:
                          and prefetch.materials == tuple(
                              (m['role'], m['content']) for m in self.ai_client.material_messages))
         if used_prefetch:
-            print(f"    等待播放期间的 AI 预取答案（已运行 {prefetch.elapsed:.1f}s）...")
+            log_print(f"    等待播放期间的 AI 预取答案（已运行 {prefetch.elapsed:.1f}s）...")
             ai_response = prefetch.wait(timeout=180)
             if ai_response:
-                print(f"    预取答案已就绪（总耗时 {prefetch.elapsed:.1f}s）")
+                log_print(f"    预取答案已就绪（总耗时 {prefetch.elapsed:.1f}s）")
             else:
-                print("    预取未返回，改为同步请求")
+                log_print("    预取未返回，改为同步请求")
         if not ai_response:
             prompt = self.prompt_builder.build(normal_questions, directions) if normal_questions else ""
             if prompt and self._retry_hint:
@@ -11831,25 +11857,25 @@ class AISolver:
                     else:
                         failed_questions.append(q)
                 else:
-                    print(f"    题目 {q.number} 无答案")
+                    log_print(f"    题目 {q.number} 无答案")
                     failed_questions.append(q)
 
             if failed_questions:
                 repaired = self._repair_questions(failed_questions, directions)
                 success_count += repaired
-                print(f"    二次修正成功 {repaired}/{len(failed_questions)} 题")
+                log_print(f"    二次修正成功 {repaired}/{len(failed_questions)} 题")
 
-            print(f"    本页成功填写 {success_count}/{total_questions} 题")
+            log_print(f"    本页成功填写 {success_count}/{total_questions} 题")
             if success_count != total_questions:
-                print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
+                log_print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
                 return "stop", None
         elif normal_questions:
-            print("    AI 未返回答案，停止当前任务")
+            log_print("    AI 未返回答案，停止当前任务")
             return "stop", None
         else:
-            print(f"    本页成功填写 {success_count}/{total_questions} 题")
+            log_print(f"    本页成功填写 {success_count}/{total_questions} 题")
             if success_count != total_questions:
-                print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
+                log_print("    本页未完整填写，停止当前任务，请检查答案和选项状态")
                 return "stop", None
 
         return "ok", (success_count, normal_questions, prefetch)
@@ -11867,10 +11893,10 @@ class AISolver:
 
         content_hash = f"{chapter_name}|{tab_name}|{l1_idx}|{l2_idx}|{direction_part}"
 
-        print(f"    内容标识: {hashlib.md5(content_hash.encode()).hexdigest()[:16]}...")
+        log_print(f"    内容标识: {hashlib.md5(content_hash.encode()).hexdigest()[:16]}...")
 
         if content_hash in self.processed_hashes:
-            print(f"   【跳过】已处理过，跳过")
+            log_print(f"   【跳过】已处理过，跳过")
             return False
 
         if self._is_publish_page():
@@ -11890,7 +11916,7 @@ class AISolver:
 
         while True:
             if self._should_stop():
-                print("    已请求停止，当前任务提前结束")
+                log_print("    已请求停止，当前任务提前结束")
                 return False
 
             if not self._is_skipped_record_only_page():
@@ -11916,19 +11942,19 @@ class AISolver:
                         return False
             questions, directions = self.parser.parse_all()
             if self.parser.incomplete:
-                print("    本页有交互题未能解析，停止当前任务")
+                log_print("    本页有交互题未能解析，停止当前任务")
                 return False
             if self._should_stop():
                 return False
             self._harvest_vocabulary()
             self._last_question_types = {q.q_type for q in questions}
-            print(f"\n    处理第 {page_num} 页题目...")
-            print(f"    找到 {len(questions)} 个可见题目")
+            log_print(f"\n    处理第 {page_num} 页题目...")
+            log_print(f"    找到 {len(questions)} 个可见题目")
 
             current_signature = self._generate_questions_signature(questions)
 
             if current_signature == last_questions_signature and page_num > 1:
-                print(f"    题目内容与上次相同，无法确认翻页完成")
+                log_print(f"    题目内容与上次相同，无法确认翻页完成")
                 return False
 
             last_questions_signature = current_signature
@@ -11944,7 +11970,7 @@ class AISolver:
                 all_self_submitting, skip_mode = self._split_record_questions(questions)
             if skipped_records:
                 total_record_skipped += len(skipped_records)
-                print(f"    本页 {len(skipped_records)} 道跟读/录音题，已按配置（{skip_mode}）自动跳过")
+                log_print(f"    本页 {len(skipped_records)} 道跟读/录音题，已按配置（{skip_mode}）自动跳过")
             record_answered = 0
             if active_records:
                 record_status, record_result = self._answer_record_questions(
@@ -11955,7 +11981,7 @@ class AISolver:
                 record_answered, normal_questions, total_questions, prefetch = record_result
                 if not normal_questions:
                     total_answered += record_answered
-                    print(f"    本页成功填写 {record_answered}/{total_questions} 题")
+                    log_print(f"    本页成功填写 {record_answered}/{total_questions} 题")
 
             if normal_questions:
                 normal_status, normal_result = self._answer_normal_questions(
@@ -11994,33 +12020,33 @@ class AISolver:
                     return False
                 if self._should_stop():
                     return False
-                print(f"    已自动提交")
+                log_print(f"    已自动提交")
             elif total_questions and all_self_submitting:
-                print(f"    本页录音已逐条上传/评分，无需点击页面提交按钮")
+                log_print(f"    本页录音已逐条上传/评分，无需点击页面提交按钮")
             elif total_questions:
-                print(f"    没找到可点击的提交按钮，请手动提交")
+                log_print(f"    没找到可点击的提交按钮，请手动提交")
                 self._last_tab_outcome = 'error'
                 return False
             elif not special_handled:
                 if total_record_skipped > 0 and total_answered == 0:
-                    print("    本任务为跟读/录音任务，已按配置自动跳过")
+                    log_print("    本任务为跟读/录音任务，已按配置自动跳过")
                     self._last_tab_outcome = 'skipped_record'
                     return False
                 if total_record_skipped > 0 and total_answered > 0:
-                    print("    本页跟读/录音题已按配置跳过，其余页面已完成")
+                    log_print("    本页跟读/录音题已按配置跳过，其余页面已完成")
                     break
                 non_answer = getattr(self.parser, 'non_answer_containers', 0)
                 if (isinstance(non_answer, int) and non_answer > 0
                         and not self.parser.incomplete and not self._page_needs_answer()):
-                    print("    该页无需作答（未检测到作答控件），跳过并继续")
+                    log_print("    该页无需作答（未检测到作答控件），跳过并继续")
                     self._last_tab_outcome = 'skipped'
                     return False
-                print("    未确认有可处理内容，保留任务为未完成")
+                log_print("    未确认有可处理内容，保留任务为未完成")
                 self._last_tab_outcome = 'error'
                 return False
-            print(f"    没有更多题目了")
+            log_print(f"    没有更多题目了")
             break
-        print(f"    总共回答 {total_answered} 题")
+        log_print(f"    总共回答 {total_answered} 题")
         self._answer_api_report()
         self.processed_hashes.add(content_hash)
         self._last_tab_outcome = 'done'
@@ -12036,7 +12062,7 @@ class AISolver:
             return False
 
     def _process_publish_content(self, task_name: str = '') -> bool:
-        print("    检测到新版 ipublish 播放器（course-v3），启用专用适配流程")
+        log_print("    检测到新版 ipublish 播放器（course-v3），启用专用适配流程")
         self.publish_executor.dismiss_rules_popup()
         if not self._publish_prepare_scope(task_name):
             return False
@@ -12083,7 +12109,7 @@ class AISolver:
                 handled += 1
                 idle_reveals = 0
                 if handled >= 80:
-                    print("    已处理 80 个题目组，停止当前任务")
+                    log_print("    已处理 80 个题目组，停止当前任务")
                     break
                 continue
             if result == 'skipped_record':
@@ -12110,15 +12136,15 @@ class AISolver:
             break
 
         if handled:
-            print(f"    新版播放器共提交 {handled} 个题目组")
+            log_print(f"    新版播放器共提交 {handled} 个题目组")
         if record_skipped:
-            print(f"    另有 {record_skipped} 个跟读/录音题目组已按配置自动跳过")
+            log_print(f"    另有 {record_skipped} 个跟读/录音题目组已按配置自动跳过")
         if ai_skipped:
-            print(f"    另有 {ai_skipped} 个题目组需 AI 作答但未配置 AI 接口，已跳过")
+            log_print(f"    另有 {ai_skipped} 个题目组需 AI 作答但未配置 AI 接口，已跳过")
         if rejected:
-            print(f"    另有 {rejected} 个题目组因正确率不足 60% 被平台拒绝提交")
+            log_print(f"    另有 {rejected} 个题目组因正确率不足 60% 被平台拒绝提交")
         if skipped:
-            print(f"    另有 {skipped} 个题目组题型暂不支持或未渲染，已跳过")
+            log_print(f"    另有 {skipped} 个题目组题型暂不支持或未渲染，已跳过")
         self._answer_api_report()
         if ai_skipped and not skipped and not rejected:
             self._last_tab_outcome = 'skipped_no_ai'
@@ -12128,9 +12154,9 @@ class AISolver:
             return False
         if not handled and not skipped and not rejected and not record_skipped and not ai_skipped:
             if not videos and not reading:
-                print("    当前任务没有可处理的题目或视频，请检查课程目录中的实际进度")
+                log_print("    当前任务没有可处理的题目或视频，请检查课程目录中的实际进度")
                 return False
-            print("    本任务正文已浏览，请以课程目录显示的进度为准")
+            log_print("    本任务正文已浏览，请以课程目录显示的进度为准")
         return not self._should_stop() and not skipped and not rejected and not record_skipped and not ai_skipped
 
     def _publish_read_task(self):
@@ -12177,7 +12203,7 @@ class AISolver:
                     self.driver.execute_script('arguments[0].muted=true; arguments[0].playbackRate=2; arguments[0].play();', video)
                     duration = WebDriverWait(self.driver, 15).until(
                         lambda d: d.execute_script('return Number.isFinite(arguments[0].duration) && arguments[0].duration || 0', video))
-                    print(f'    播放当前任务音视频（{int(duration)} 秒）')
+                    log_print(f'    播放当前任务音视频（{int(duration)} 秒）')
                     deadline = time.monotonic() + duration + 60
                     while not self._should_stop() and time.monotonic() < deadline:
                         progress = self.driver.execute_script(
@@ -12187,11 +12213,11 @@ class AISolver:
                         if progress['error'] or self.stop_requested.wait(0.5):
                             return None
                     else:
-                        print('    视频未播放完成')
+                        log_print('    视频未播放完成')
                         return None
                     played += 1
                 except Exception as exc:
-                    print(f'    视频播放失败: {str(exc)[:100]}')
+                    log_print(f'    视频播放失败: {str(exc)[:100]}')
                     return None
                 finally:
                     try:
@@ -12258,15 +12284,15 @@ class AISolver:
             if not scoped:
                 return None
             if len(scoped) != 1:
-                print('    当前任务包含多个测试，请手动处理')
+                log_print('    当前任务包含多个测试，请手动处理')
                 return False
             if not self._ai_available():
-                print('    单元测试需要 AI 作答，但未配置 AI 接口，跳过该任务')
+                log_print('    单元测试需要 AI 作答，但未配置 AI 接口，跳过该任务')
                 self._last_tab_outcome = 'skipped_no_ai'
                 return False
             covers = scoped[0]['element'].find_elements(By.CSS_SELECTOR, '[class*="coverContainer"]')
             if not covers or not WebDriverHelper.safe_click(self.driver, covers[0]):
-                print('    无法打开单元测试')
+                log_print('    无法打开单元测试')
                 return False
             try:
                 WebDriverWait(self.driver, 15).until(lambda d: d.find_elements(By.CSS_SELECTOR, '[class*="acknowledge_btn__"]') or d.find_elements(By.CSS_SELECTOR, 'iframe[src*="/learner/testing/"]'))
@@ -12279,7 +12305,7 @@ class AISolver:
                 WebDriverWait(self.driver, 20).until(lambda d: d.find_elements(By.CSS_SELECTOR, '[data-ipublish-question-group-type]'))
                 text = self.driver.find_element(By.TAG_NAME, 'body').text
                 if '最终得分' in text or '再次作答' in text:
-                    print('    单元测试已有成绩，保留现有结果')
+                    log_print('    单元测试已有成绩，保留现有结果')
                     return True
                 groups = self.publish_parser.collect_groups()
                 parsed = []
@@ -12300,7 +12326,7 @@ class AISolver:
                     if kind == 'skip':
                         continue
                     if kind not in self.QUIZ_SUPPORTED_KINDS:
-                        print(f"    单元测试暂不支持题型: {state['type']}")
+                        log_print(f"    单元测试暂不支持题型: {state['type']}")
                         return False
                     questions = self.publish_parser.parse_group(state['element'], state['type'], 1)
                     nodes = self.publish_parser._question_nodes(state['element'])
@@ -12312,7 +12338,7 @@ class AISolver:
                             or (kind != 'link_match' and nodes and len(questions) != len(nodes))
                             or mismatch_fill
                             or self._publish_quiz_has_existing_answer(questions)):
-                        print('    测试已有作答或题目解析失败，保留当前进度')
+                        log_print('    测试已有作答或题目解析失败，保留当前进度')
                         return False
                     group_passages = [] if state['type'] == 'translation_group' else list(active_passages)
                     seen_question_since_passage = True
@@ -12345,12 +12371,12 @@ class AISolver:
                     )
                     for (question, _), answer in zip(prepared_items, adjusted_answers):
                         if not answer or not self.publish_executor.execute(question, answer):
-                            print('    测试未完整填写，保留当前进度')
+                            log_print('    测试未完整填写，保留当前进度')
                             return False
                 text = self.driver.find_element(By.TAG_NAME, 'body').text
                 progress = re.search(r'答题卡共计\s*(\d+)\s*题\s*(\d+)\s*/\s*(\d+)', text)
                 if not progress or int(progress.group(1)) == 0 or len(set(progress.groups())) != 1:
-                    print('    无法确认测试全部答完，不提交')
+                    log_print('    无法确认测试全部答完，不提交')
                     return False
                 submit = self.driver.find_elements(By.XPATH, "//span[normalize-space(.)='提交']")
                 if not submit or not WebDriverHelper.safe_click(self.driver, submit[-1]):
@@ -12362,10 +12388,10 @@ class AISolver:
                     return False
                 self.driver.switch_to.frame(frame)
                 WebDriverWait(self.driver, 30).until(lambda d: '最终得分' in d.find_element(By.TAG_NAME, 'body').text)
-                print('    单元测试已提交并生成成绩')
+                log_print('    单元测试已提交并生成成绩')
                 return True
             except Exception as exc:
-                print(f'    单元测试处理失败: {str(exc)[:100]}')
+                log_print(f'    单元测试处理失败: {str(exc)[:100]}')
                 return False
 
     def _publish_prepare_scope(self, task_name: str = '', timeout: float = 30.0) -> bool:
@@ -12398,13 +12424,13 @@ class AISolver:
                         raise ValueError('任务仍在切换中')
                     self._publish_scope = scope
                     self._publish_scope_url = route
-                    print(f"    作答范围：{scope.title or '当前独立题目页'}，到本任务末尾即停止")
+                    log_print(f"    作答范围：{scope.title or '当前独立题目页'}，到本任务末尾即停止")
                     return True
             except Exception as exc:
                 reason = str(exc)
             if self.stop_requested.wait(0.2):
                 return False
-        print(f"    无法确认当前任务范围：{reason}，停止当前任务")
+        log_print(f"    无法确认当前任务范围：{reason}，停止当前任务")
         return False
 
     def _publish_scoped_groups(self, groups: List[Dict]) -> List[Dict]:
@@ -12417,7 +12443,7 @@ class AISolver:
         try:
             return bool(self._publish_scoped_groups([{'element': group}]))
         except Exception as exc:
-            print(f"    题组范围校验失败：{exc}")
+            log_print(f"    题组范围校验失败：{exc}")
             return False
 
     def _publish_reveal_more_groups(self) -> bool:
@@ -12438,7 +12464,7 @@ class AISolver:
             except Exception:
                 return False
             if after > before:
-                print(f"    滚动加载出更多题目组: {before} -> {after}")
+                log_print(f"    滚动加载出更多题目组: {before} -> {after}")
                 return True
             return False
 
@@ -12446,19 +12472,19 @@ class AISolver:
         self.publish_executor.dismiss_rules_popup()
         with PublishFrameContext(self.driver) as context:
             if not context.entered:
-                print("    未能进入 ipublish 内容 iframe")
+                log_print("    未能进入 ipublish 内容 iframe")
                 return 'error'
 
             parser = self.publish_parser
             groups = parser.collect_groups()
             if not groups:
-                print("    内容层没有找到题目组（可能仍在加载）")
+                log_print("    内容层没有找到题目组（可能仍在加载）")
                 return 'done'
 
             try:
                 scoped_groups = self._publish_scoped_groups(groups)
             except ValueError as exc:
-                print(f"    {exc}")
+                log_print(f"    {exc}")
                 return 'error'
 
             for passage in parser.collect_passages(groups):
@@ -12477,17 +12503,17 @@ class AISolver:
                 if key in self._publish_processed_groups:
                     continue
                 if state['kind'] == 'upload':
-                    print(f"    需要手动上传附件的题目组: {state['type']}")
+                    log_print(f"    需要手动上传附件的题目组: {state['type']}")
                     self._publish_processed_groups.add(key)
                     return 'skipped'
                 if state['kind'] == 'ai_oral':
-                    print('    AI 口语对话需要在平台内完成')
+                    log_print('    AI 口语对话需要在平台内完成')
                     self._publish_processed_groups.add(key)
                     return 'skipped'
                 if state['kind'] == 'record':
                     fast_skip = should_skip_publish_group_fast(state['type'], self._skip_record_mode())
                     if fast_skip is True:
-                        print(f"    已按配置（{self._skip_record_mode()}）跳过跟读/录音题目组: {state['type']}")
+                        log_print(f"    已按配置（{self._skip_record_mode()}）跳过跟读/录音题目组: {state['type']}")
                         self._publish_processed_groups.add(key)
                         return 'skipped_record'
                 pending = (state, key, answer_index)
@@ -12522,7 +12548,7 @@ class AISolver:
         filled = 0
         if all(question.q_type == QuestionType.RECORD for question in questions):
             if any(question.needs_speech_script for question in questions) and not self._ai_available():
-                print(f"    题目组 {group_type} 含主观口语题但未配置 AI 接口，跳过该组")
+                log_print(f"    题目组 {group_type} 含主观口语题但未配置 AI 接口，跳过该组")
                 self._publish_processed_groups.add(key)
                 return "skipped_no_ai", None
             if not self._publish_prepare_media(group):
@@ -12531,10 +12557,10 @@ class AISolver:
                 if self._should_stop() or not self._publish_group_in_scope(group):
                     return "stop", None
                 if not self._publish_select_record_question(group, question):
-                    print("    无法切换到口语小题，不提交")
+                    log_print("    无法切换到口语小题，不提交")
                     return "stop", None
                 if self.publish_executor.publish_record_uploaded(question):
-                    print("    本题已有上传录音，保留现有结果")
+                    log_print("    本题已有上传录音，保留现有结果")
                     filled += 1
                     continue
                 answer = ''
@@ -12549,7 +12575,7 @@ class AISolver:
                         screenshot=self._question_screenshot([question]),
                         require_image=self._requires_image_context([question]))
                     if not answer or self._should_stop():
-                        print("    AI 未返回口语稿")
+                        log_print("    AI 未返回口语稿")
                         return "stop", None
                 if self.publish_executor.execute(question, answer):
                     filled += 1
@@ -12566,7 +12592,7 @@ class AISolver:
                     list(zip(questions, official_answers)),
                     enforce_submit_floor=True,
                 )
-                print(f"    本组 {len(adjusted_official)} 题已使用官方答案填写，跳过 AI")
+                log_print(f"    本组 {len(adjusted_official)} 题已使用官方答案填写，跳过 AI")
                 self.publish_executor._exact_official_mode = True
                 try:
                     for question, answer in zip(questions, adjusted_official):
@@ -12578,7 +12604,7 @@ class AISolver:
                     self.publish_executor._exact_official_mode = False
             else:
                 if not self._ai_available():
-                    print(f"    题目组 {group_type} 未能通过官方答案完成且未配置 AI 接口，跳过该组")
+                    log_print(f"    题目组 {group_type} 未能通过官方答案完成且未配置 AI 接口，跳过该组")
                     self._publish_processed_groups.add(key)
                     return "skipped_no_ai", None
                 if not self._publish_prepare_media(group, skip_transcription=False):
@@ -12593,7 +12619,7 @@ class AISolver:
                 if self._should_stop():
                     return "stop", None
                 if not ai_response:
-                    print("    AI 未返回答案")
+                    log_print("    AI 未返回答案")
                     return "stop", None
                 prepared_items = self._publish_prepare_answers(
                     questions, ai_response, group=group
@@ -12615,10 +12641,10 @@ class AISolver:
                               answer_index: Optional[int] = None):
         parser = self.publish_parser
         if not self._publish_group_in_scope(group):
-            print("    题目组不在当前勾选任务内，不作答")
+            log_print("    题目组不在当前勾选任务内，不作答")
             return False
         if not self.publish_executor.reveal_group(group, self.stop_requested):
-            print("    未能展开题目所在的折叠面板，停止当前任务")
+            log_print("    未能展开题目所在的折叠面板，停止当前任务")
             return False
         try:
             self.driver.execute_script(
@@ -12628,7 +12654,7 @@ class AISolver:
         interruptible_sleep(0.4)
 
         if not self._publish_wait_group_rendered(group):
-            print("    题目组滚动后仍未渲染，跳过该组（下次再处理）")
+            log_print("    题目组滚动后仍未渲染，跳过该组（下次再处理）")
             self._publish_processed_groups.add(key)
             return 'skipped'
 
@@ -12636,22 +12662,22 @@ class AISolver:
         unsupported_before = len(parser.unsupported)
         questions = parser.parse_group(group, group_type, 1)
         if len(parser.unsupported) > unsupported_before:
-            print(f"    暂不支持自动作答的题型: {parser.unsupported[-1]}")
+            log_print(f"    暂不支持自动作答的题型: {parser.unsupported[-1]}")
 
-        print(f"\n    题目组 {group_type}：{len(questions)} 道题")
+        log_print(f"\n    题目组 {group_type}：{len(questions)} 道题")
         if not questions:
-            print("    该题目组没有可解析的题目，跳过")
+            log_print("    该题目组没有可解析的题目，跳过")
             self._publish_processed_groups.add(key)
             return 'skipped'
         nodes = parser._question_nodes(group)
         if nodes and len(questions) != len(nodes):
-            print("    本组有小题未能解析，不提交，请检查页面结构")
+            log_print("    本组有小题未能解析，不提交，请检查页面结构")
             return False
 
         skip_mode = self._skip_record_mode()
         if questions and all(should_skip_record_question(question, skip_mode)
                              for question in questions):
-            print(f"    题目组 {group_type} 为跟读/录音题，已按配置（{skip_mode}）跳过")
+            log_print(f"    题目组 {group_type} 为跟读/录音题，已按配置（{skip_mode}）跳过")
             self._publish_processed_groups.add(key)
             return 'skipped_record'
 
@@ -12663,10 +12689,10 @@ class AISolver:
         if fill_status == "skipped_no_ai":
             return 'skipped_no_ai'
         filled = fill_value
-        print(f"    本组填写 {filled}/{len(questions)} 题")
+        log_print(f"    本组填写 {filled}/{len(questions)} 题")
 
         if filled != len(questions):
-            print("    本组未完整填写，不提交，停止当前任务以免留下半成品")
+            log_print("    本组未完整填写，不提交，停止当前任务以免留下半成品")
             return False
 
         if self._should_stop():
@@ -12675,11 +12701,11 @@ class AISolver:
         PublishPlayer.reset(self.driver)
         popup_closed = self.publish_executor.dismiss_rules_popup()
         if popup_closed:
-            print("    提交前已关闭「本单元学习规则」弹窗")
+            log_print("    提交前已关闭「本单元学习规则」弹窗")
 
         with PublishFrameContext(self.driver) as submit_context:
             if not submit_context.entered:
-                print("    提交前未能重新进入内容 iframe")
+                log_print("    提交前未能重新进入内容 iframe")
                 return False
             submit_group = group
             if popup_closed:
@@ -12687,14 +12713,14 @@ class AISolver:
                 if relocated is not None:
                     submit_group = relocated
             if not self._publish_wait_group_rendered(submit_group, timeout=6):
-                print("    提交前题目组未渲染，跳过该组")
+                log_print("    提交前题目组未渲染，跳过该组")
                 self._publish_processed_groups.add(key)
                 return 'skipped'
             if not self._publish_group_in_scope(submit_group):
-                print("    提交前任务边界校验失败，不提交")
+                log_print("    提交前任务边界校验失败，不提交")
                 return False
             button = self.publish_executor.find_submit_button(submit_group)
-            print(f"    提交按钮状态: text={PublishPlayer.button_text(button)!r} "
+            log_print(f"    提交按钮状态: text={PublishPlayer.button_text(button)!r} "
                   f"displayed={button.is_displayed() if button is not None else None}")
             submitted_before = self._publish_submitted_count()
             group_index = self._publish_group_index(key)
@@ -12708,22 +12734,22 @@ class AISolver:
             if not submitted_ok:
                 rejection = getattr(self.publish_executor, 'last_rejection', '')
                 if rejection:
-                    print(f"    平台拒绝提交（{rejection}），该组保持未提交状态并继续后面题目")
+                    log_print(f"    平台拒绝提交（{rejection}），该组保持未提交状态并继续后面题目")
                     self._publish_processed_groups.add(key)
                     return 'rejected'
                 if self._publish_submitted_count() > submitted_before:
-                    print("    已批改题目组数量增加，判定提交成功")
+                    log_print("    已批改题目组数量增加，判定提交成功")
                     submitted_ok = True
             if not submitted_ok:
                 submitted_ok = self._publish_confirm_graded_after_reload(group_index, key)
                 if submitted_ok:
-                    print("    重新进入播放器后确认已批改")
+                    log_print("    重新进入播放器后确认已批改")
             if not submitted_ok:
-                print("    提交失败或未进入已批改状态")
+                log_print("    提交失败或未进入已批改状态")
                 return False
 
         self._publish_processed_groups.add(key)
-        print("    本组已提交")
+        log_print("    本组已提交")
         return 'submitted'
 
     def _publish_confirm_graded_after_reload(self, index: int, key: str) -> bool:
@@ -12822,21 +12848,21 @@ class AISolver:
             is_video = kind == 'insert-video'
             media = wrapper.find_elements(By.TAG_NAME, 'video' if is_video else 'audio')
             if not media:
-                print("    音视频播放器未加载，不提交")
+                log_print("    音视频播放器未加载，不提交")
                 return False
             if not self.publish_executor.play_material(media[0]):
-                print("    未能确认音视频播放，不提交")
+                log_print("    未能确认音视频播放，不提交")
                 return False
             if skip_transcription:
                 continue
             url = (wrapper.get_attribute('data-video-url') if is_video
                    else media[0].get_attribute('src')) or ''
             if urlsplit(url).scheme not in ('http', 'https'):
-                print("    未找到可下载的音视频材料，不提交")
+                log_print("    未找到可下载的音视频材料，不提交")
                 return False
             transcript = self.video_handler.transcriber.transcribe(url.split('#')[0], language='en')
             if not (transcript or '').strip() or self._should_stop():
-                print("    音视频转写失败，不提交")
+                log_print("    音视频转写失败，不提交")
                 return False
             if is_video:
                 self.ai_client.add_video_transcript_if_new(transcript)
@@ -12859,7 +12885,7 @@ class AISolver:
                 except Exception:
                     options = []
                 collected_blanks.append({'index': local_index, 'options': list(options)})
-                print(f"    空{index} 候选抓取: {len(options)} 个")
+                log_print(f"    空{index} 候选抓取: {len(options)} 个")
                 if options:
                     lines.append(f"   空{index} 候选: {' / '.join(options)}")
             if collected_blanks:
@@ -13016,7 +13042,7 @@ class AISolver:
             if after_text and after_text != before_text:
                 return True
             interruptible_sleep(0.5)
-        print("    点击下一节后内容未变化")
+        log_print("    点击下一节后内容未变化")
         return False
 
     def _publish_current_url(self) -> str:
@@ -13040,7 +13066,7 @@ class AISolver:
             if context.entered:
                 button = self._publish_find_next_button()
                 if button is not None:
-                    print("    尝试进入下一节（内容层）...")
+                    log_print("    尝试进入下一节（内容层）...")
                     if WebDriverHelper.safe_click(self.driver, button):
                         interruptible_sleep(2.5)
                         return True
@@ -13049,7 +13075,7 @@ class AISolver:
         button = self._publish_find_next_button()
         if button is None:
             return False
-        print("    尝试进入下一节（外壳层）...")
+        log_print("    尝试进入下一节（外壳层）...")
         if not WebDriverHelper.safe_click(self.driver, button):
             return False
         interruptible_sleep(2.5)
@@ -13118,9 +13144,9 @@ class AISolver:
         return hashlib.md5("|".join(parts).encode()).hexdigest()[:16]
 
     def solve_current_page(self, chapter_name: str = "unknown") -> bool:
-        print("\n" + "=" * 60)
-        print(" 开始处理当前停留的页面")
-        print("=" * 60)
+        log_print("\n" + "=" * 60)
+        log_print(" 开始处理当前停留的页面")
+        log_print("=" * 60)
 
         self._publish_processed_groups = set()
         self._inline_learning_tried = False
@@ -13136,10 +13162,10 @@ class AISolver:
         if not state_key or state_key == "empty":
             state_key = f"{chapter_name}_{int(time.time())}"
 
-        print(f"    内容标识: {state_key[:50]}...")
+        log_print(f"    内容标识: {state_key[:50]}...")
 
         if state_key in self.processed_hashes:
-            print(f"   【继续】该页面的哈希已被记录，正在执行作答...")
+            log_print(f"   【继续】该页面的哈希已被记录，正在执行作答...")
 
         self.processed_hashes.add(state_key)
 
@@ -13157,10 +13183,10 @@ class AISolver:
             0
         )
 
-        print(f"\n{'=' * 60}")
-        print(" 当前页面处理已停止" if self._should_stop() else
+        log_print(f"\n{'=' * 60}")
+        log_print(" 当前页面处理已停止" if self._should_stop() else
               (" 当前页面处理完毕" if success else " 当前页面未处理完成"))
-        print(f"{'=' * 60}")
+        log_print(f"{'=' * 60}")
         return success
 
     def _find_next_question_button(self) -> Optional[Any]:
@@ -13191,7 +13217,7 @@ class AISolver:
                             return btn
             except Exception as e:
                 error_msg = str(e)
-                print(f"操作失败: {error_msg[:50]}")
+                log_print(f"操作失败: {error_msg[:50]}")
                 logger.error(f"详细错误: {error_msg}", exc_info=True)
                 continue
 
@@ -13248,7 +13274,7 @@ class AISolver:
 
         except Exception as e:
             error_msg = str(e)
-            print(f"    生成哈希失败:{error_msg[:50]} ")
+            log_print(f"    生成哈希失败:{error_msg[:50]} ")
             logger.error(f"详细错误: {error_msg}", exc_info=True)
             return "empty"
 
@@ -13410,7 +13436,7 @@ class AISolver:
         try:
             transcriber.release_local_model()
         except Exception as exc:
-            print(f"   释放 Whisper 模型失败: {str(exc)[:60]}")
+            log_print(f"   释放 Whisper 模型失败: {str(exc)[:60]}")
 
     def _skip_transcription(self, tab_name: str = "") -> bool:
         title = (tab_name or "").lower()
@@ -13514,7 +13540,7 @@ class AISolver:
                 self.driver.execute_cdp_cmd('Emulation.clearDeviceMetricsOverride', {})
                 interruptible_sleep(0.3)
         except Exception as exc:
-            print(f"    题目截图失败: {str(exc)[:60]}")
+            log_print(f"    题目截图失败: {str(exc)[:60]}")
             return None
 
     def _preprocess_audio_if_needed(self, tab_name: str, l1_idx: int, l2_idx: int,
@@ -13528,7 +13554,7 @@ class AISolver:
         if skip_transcription is None:
             skip_transcription = self._skip_transcription(tab_name)
         if skip_transcription:
-            print("   该页不需要作答，跳过音频转写")
+            log_print("   该页不需要作答，跳过音频转写")
             return True
 
         if find_record_buttons(self.driver) or AudioStrategy.is_audio_only_page(self.driver):
@@ -13540,7 +13566,7 @@ class AISolver:
         try:
             audio_urls = self._extract_audio_urls_from_page()
             if not audio_urls:
-                print("   未找到有效音频URL，停止当前任务")
+                log_print("   未找到有效音频URL，停止当前任务")
                 return False
 
             if self._processed_audio_context is not self.ai_client.material_messages:
@@ -13555,7 +13581,7 @@ class AISolver:
                 if self._should_stop():
                     return False
                 audio_key = audio_url.split('#')[0]
-                print(f"   音频转写 {index}/{len(pending)}...")
+                log_print(f"   音频转写 {index}/{len(pending)}...")
                 transcript = self.video_handler.transcriber.transcribe(
                     audio_url, language="en")
 
@@ -13563,9 +13589,9 @@ class AISolver:
                     return False
                 if transcript and transcript.strip():
                     self.ai_client.add_audio_transcript_if_new(transcript)
-                    print(f"   音频转写完成（{len(transcript)}字符）")
+                    log_print(f"   音频转写完成（{len(transcript)}字符）")
                 else:
-                    print("   音频转写为空")
+                    log_print("   音频转写为空")
                     return False
 
                 self._processed_audio_tabs.add(audio_key)
@@ -13574,11 +13600,11 @@ class AISolver:
                 try:
                     on_transcript("audio")
                 except Exception as exc:
-                    print(f"   预取答案启动失败: {str(exc)[:60]}")
+                    log_print(f"   预取答案启动失败: {str(exc)[:60]}")
             return True
 
         except Exception as e:
-            print(f"   预处理失败: {str(e)[:80]}")
+            log_print(f"   预处理失败: {str(e)[:80]}")
             logger.error(f"音频预处理异常: {e}", exc_info=True)
             return False
 
@@ -13643,7 +13669,7 @@ class AISolver:
         try:
             video_info = self.video_handler._get_video_info()
             if not video_info:
-                print("   未找到可播放的视频，停止当前任务")
+                log_print("   未找到可播放的视频，停止当前任务")
                 return False
             video_url = (video_info or {}).get('url', '')
             video_key = video_url.split('#')[0] if video_url else f"{tab_name}|{l1_idx}|{l2_idx}"
@@ -13657,12 +13683,12 @@ class AISolver:
             if video_key in self._skipped_video_tabs:
                 if skip_transcription:
                     return True
-                print("   补做视频转写...")
+                log_print("   补做视频转写...")
                 self.video_handler.skip_transcription = False
                 transcript = self.video_handler.ensure_transcript(video_url)
                 if transcript and transcript.strip():
                     self.ai_client.add_video_transcript_if_new(transcript)
-                    print(f"   视频转写完成（{len(transcript)}字符）")
+                    log_print(f"   视频转写完成（{len(transcript)}字符）")
                     if on_transcript:
                         on_transcript(transcript)
                     self._processed_video_tabs.add(video_key)
@@ -13670,13 +13696,13 @@ class AISolver:
                     self._skipped_video_tabs.discard(video_key)
                     return True
                 else:
-                    print("   视频转写失败")
+                    log_print("   视频转写失败")
                     return False
 
             if skip_transcription:
-                print("   只播放，不转写")
+                log_print("   只播放，不转写")
             else:
-                print("   播放并转写视频...")
+                log_print("   播放并转写视频...")
             injected = {'done': False}
 
             def _inject_transcript_then_notify(transcript):
@@ -13695,7 +13721,7 @@ class AISolver:
             if transcript and transcript.strip():
                 if not injected['done']:
                     self.ai_client.add_video_transcript_if_new(transcript)
-                print(f"   视频转写完成（{len(transcript)}字符）")
+                log_print(f"   视频转写完成（{len(transcript)}字符）")
                 self._processed_video_tabs.add(video_key)
                 self._video_transcripts[video_key] = transcript
                 return True
@@ -13703,12 +13729,12 @@ class AISolver:
                 self._skipped_video_tabs.add(video_key)
                 return True
             else:
-                print("   视频转写失败")
+                log_print("   视频转写失败")
                 self._skipped_video_tabs.add(video_key)
                 return False
 
         except Exception as e:
-            print(f"   预处理失败: {str(e)[:80]}")
+            log_print(f"   预处理失败: {str(e)[:80]}")
             logger.error(f"视频预处理异常: {e}", exc_info=True)
             return False
 
@@ -13742,7 +13768,7 @@ class AISolver:
                     dialog_kind = getattr(self, '_last_dialog_kind', None)
                     if dialog_kind == 'validation_error':
                         dialog_text = str(getattr(self, '_last_dialog_text', '') or '')[:80]
-                        print(f"   提交被页面拦截（{dialog_text}），保留任务为未完成")
+                        log_print(f"   提交被页面拦截（{dialog_text}），保留任务为未完成")
                         return False
                     if dialog_kind == 'info_overlay':
                         net_state = _read_submit_network_state(self.driver)
@@ -13750,21 +13776,21 @@ class AISolver:
                             net_state.get('reqCount', 0) == 0 and net_state.get('inFlight', 0) == 0
                         )
                         if no_req and resubmit_count < 2:
-                            print("   已关闭提示遮罩，重新点击提交")
+                            log_print("   已关闭提示遮罩，重新点击提交")
                             if self.executor.submit():
                                 resubmit_count += 1
                                 last_click_elapsed = elapsed
                     continue
                 submit_btn = self._find_visible_submit_button()
                 if submit_btn is None:
-                    print(f"   提交按钮已消失，提交完成")
+                    log_print(f"   提交按钮已消失，提交完成")
                     return True
 
                 body_text = (self.driver.find_element(By.TAG_NAME, 'body').text or '').lower()
                 if re.search(r'(?<!未)(?:提交成功|保存成功|已提交)|'
                              r'\b(?:successfully\s+(?:submitted|saved)|'
                              r'(?:submitted|saved)\s+successfully)\b', body_text):
-                    print(f"   检测到成功提示")
+                    log_print(f"   检测到成功提示")
                     return True
 
                 net_state = _read_submit_network_state(self.driver)
@@ -13778,7 +13804,7 @@ class AISolver:
                     if effective_timeout < grading_timeout:
                         effective_timeout = max(timeout, grading_timeout)
                     if not grading_notified:
-                        print(f"   检测到平台提交/智能评测进行中，延长等待上限至 {effective_timeout}s...")
+                        log_print(f"   检测到平台提交/智能评测进行中，延长等待上限至 {effective_timeout}s...")
                         grading_notified = True
                 elif (isinstance(net_state, dict)
                       and net_state.get('reqCount', 0) == 0
@@ -13786,7 +13812,7 @@ class AISolver:
                       and not net_state.get('gradingPending')
                       and resubmit_count < 2
                       and (elapsed - last_click_elapsed) >= 4.0):
-                    print(f"   尚未检测到提交请求，尝试重新点击提交按钮（第 {resubmit_count + 1}/2 次）")
+                    log_print(f"   尚未检测到提交请求，尝试重新点击提交按钮（第 {resubmit_count + 1}/2 次）")
                     if self.executor.submit():
                         resubmit_count += 1
                         last_click_elapsed = elapsed
@@ -13797,10 +13823,10 @@ class AISolver:
             if self.stop_requested.wait(0.5):
                 return False
 
-        print(f"   等待提交确认超时（{effective_timeout}s），保留任务为未完成")
+        log_print(f"   等待提交确认超时（{effective_timeout}s），保留任务为未完成")
         diag = _describe_submit_timeout_state(self.driver, _read_submit_network_state(self.driver))
         if diag:
-            print(f"   超时现场诊断: {diag}")
+            log_print(f"   超时现场诊断: {diag}")
         return False
 
     def _find_visible_submit_button(self) -> Optional[Any]:
@@ -13835,7 +13861,7 @@ class AISolver:
                 current_signature = self._generate_questions_signature(questions)
 
                 if current_signature != previous_signature and current_signature != "empty":
-                    print(f"         内容已变化: {previous_signature[:8]}... -> {current_signature[:8]}...")
+                    log_print(f"         内容已变化: {previous_signature[:8]}... -> {current_signature[:8]}...")
                     return True
 
             except Exception as e:
@@ -13844,7 +13870,7 @@ class AISolver:
             if self.stop_requested.wait(check_interval):
                 return False
 
-        print(f"         等待内容变化超时")
+        log_print(f"         等待内容变化超时")
         return False
 
 
@@ -13917,8 +13943,8 @@ class UCampusBot:
                     if ffmpeg_path:
                         bin_dir = os.path.dirname(ffmpeg_path)
                         checker._add_to_system_path(bin_dir)
-                        print(f" FFmpeg 已添加到 PATH: {bin_dir}")
-                        print("请重新运行程序")
+                        log_print(f" FFmpeg 已添加到 PATH: {bin_dir}")
+                        log_print("请重新运行程序")
                         input("按回车键退出...")
                         sys.exit(0)
 
@@ -13931,7 +13957,7 @@ class UCampusBot:
                     sys.exit(1)
 
                 else:
-                    print("无效选项，请重新选择")
+                    log_print("无效选项，请重新选择")
 
     def _show_detailed_help(self):
         name = self.browser.display_name
@@ -13941,7 +13967,7 @@ class UCampusBot:
         else:
             browser_fix = f"       解决：这个浏览器不提供自动安装，请手动下载：{hints}"
 
-        print(f"""
+        log_print(f"""
     【问题诊断】
 
     1. {name} 浏览器问题
@@ -14012,7 +14038,7 @@ class UCampusBot:
             except NoSuchDriverException:
                 if not install_path:
                     raise
-                print(f" 按 {install_path} 取不到 driver，改由自动解析重试...")
+                log_print(f" 按 {install_path} 取不到 driver，改由自动解析重试...")
                 options.binary_location = ""
                 driver = webdriver_cls(options=options, service=service_cls(**service_options))
         except BaseException:
@@ -14050,16 +14076,16 @@ class UCampusBot:
         try:
             return self._start_browser(temp_dir)
         except NoSuchDriverException as exc:
-            print(f"\n 找不到 {self.browser.display_name} 的 driver：{str(exc)[:120]}")
-            print(f"   请确认已安装 {self.browser.display_name}，或在 config.json 里改 \"browser\"（edge / chrome）")
+            log_print(f"\n 找不到 {self.browser.display_name} 的 driver：{str(exc)[:120]}")
+            log_print(f"   请确认已安装 {self.browser.display_name}，或在 config.json 里改 \"browser\"（edge / chrome）")
             for hint in self.browser.manual_install_hint:
-                print(f"   下载：{hint}")
+                log_print(f"   下载：{hint}")
             raise
         except (SessionNotCreatedException, WebDriverException) as exc:
-            print(f" 启动 {self.browser.display_name} 失败（{str(exc)[:120]}），尝试兼容模式重试...")
+            log_print(f" 启动 {self.browser.display_name} 失败（{str(exc)[:120]}），尝试兼容模式重试...")
             return self._start_browser(temp_dir, extra_args=self.COMPAT_BROWSER_ARGS)
         except Exception as exc:
-            print(f" 启动 {self.browser.display_name} 超时（{str(exc)[:120]}），尝试兼容模式重试...")
+            log_print(f" 启动 {self.browser.display_name} 超时（{str(exc)[:120]}），尝试兼容模式重试...")
             return self._start_browser(temp_dir, extra_args=self.COMPAT_BROWSER_ARGS)
 
     def start(self):
@@ -14283,7 +14309,7 @@ class UCampusBot:
         try:
             written = element.parent.execute_script(script, element, value)
         except Exception as exc:
-            print(f"  {label}写入异常: {type(exc).__name__}")
+            log_print(f"  {label}写入异常: {type(exc).__name__}")
             written = None
         if written == value:
             return True
@@ -14295,10 +14321,10 @@ class UCampusBot:
             element.send_keys(value)
             written = element.get_attribute('value') or ''
         except Exception as exc:
-            print(f"  {label}键盘写入异常: {type(exc).__name__}")
+            log_print(f"  {label}键盘写入异常: {type(exc).__name__}")
             return False
         if written != value:
-            print(f"  {label}写入校验失败")
+            log_print(f"  {label}写入校验失败")
             return False
         return True
 
@@ -14343,17 +14369,17 @@ class UCampusBot:
     def anti_anti_cheat(self):
         legacy_token, configured_jwt = _parse_auth_token(self.config.token_full)
         if self.config.token_full and not configured_jwt:
-            print(" 配置的 token_full 格式无效，改用本次登录会话")
+            log_print(" 配置的 token_full 格式无效，改用本次登录会话")
 
         try:
             WebDriverWait(self.driver, 45).until(self._has_live_auth)
         except TimeoutException:
             if not configured_jwt:
                 raise
-            print(" 未检测到实时登录凭据，使用配置中的 token")
+            log_print(" 未检测到实时登录凭据，使用配置中的 token")
 
         state = self._sync_auth_state(legacy_token, configured_jwt)
-        print(f" 登录认证来源: {state.get('source', 'unknown')}")
+        log_print(f" 登录认证来源: {state.get('source', 'unknown')}")
 
         self.driver.get(UCLOUD_HOME_URL)
         WebDriverWait(self.driver, 45).until(self._home_ready)
@@ -14382,7 +14408,7 @@ class PopupWatcher:
                 if self._stop_event.is_set():
                     break
                 error_msg = str(e)
-                print(f"操作失败: {error_msg[:50]}")
+                log_print(f"操作失败: {error_msg[:50]}")
                 logger.warning(f"弹窗监控操作失败: {error_msg[:120]}")
             self._stop_event.wait(0.5)
 
@@ -14419,17 +14445,17 @@ class PopupWatcher:
         self.driver.execute_script(js)
 
 if __name__ == '__main__':
-    print('*' * 25 + "Unipus-Helper" + '*' * 25)
+    log_print('*' * 25 + "Unipus-Helper" + '*' * 25)
 
     ensure_writable_temp_dir()
 
     skip_check = '--skip-check' in sys.argv
 
     if not skip_check:
-        print("\n 提示：")
-        print("   - 首次运行需要检查环境")
-        print("   - 语音识别需要 FFmpeg（约130MB，可自动安装）")
-        print("   - 如检查通过但无法启动，使用 --skip-check 跳过")
+        log_print("\n 提示：")
+        log_print("   - 首次运行需要检查环境")
+        log_print("   - 语音识别需要 FFmpeg（约130MB，可自动安装）")
+        log_print("   - 如检查通过但无法启动，使用 --skip-check 跳过")
 
     logger = setup_logging()
 
@@ -14444,10 +14470,10 @@ if __name__ == '__main__':
         bot = UCampusBot(os.path.join(BASE_DIR, 'config.json'), skip_check=skip_check)
         bot.start()
     except KeyboardInterrupt:
-        print("\n 正在关闭工作台与课程浏览器...")
+        log_print("\n 正在关闭工作台与课程浏览器...")
     except Exception as e:
         error_msg = str(e)
-        print(f"\n 程序运行失败: {error_msg[:100]}")
+        log_print(f"\n 程序运行失败: {error_msg[:100]}")
         logger.error(f"程序异常: {error_msg}", exc_info=True)
         exit_code = 1
     finally:
