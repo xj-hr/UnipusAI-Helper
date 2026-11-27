@@ -57,6 +57,7 @@
 | 2026-11-27 | D-01 传导闭环：告警队列 + `snapshot.degraded`，新增 `test_swallow.py` 入 CI | `f273809` |
 | 2026-11-27 | D-03 第一步：抽出 `_split_record_questions()`，455→435 行 | `9197cdb` |
 | 2026-11-27 | 新增 `scripts/sweep_question_pages.py`：遍历单元采样，命中题目页即停 | `3d340cb` |
+| 2026-11-27 | 页面解析基线测试（无头 Edge + 合成页/真实样本），CI 缺浏览器自动跳过 | `999fc9b` |
 | 2026-11-27 | `config.example.json` 补 `time_brushing` 段 + CHANGELOG「未发布」 | `bb0c9a4` |
 | 2026-11-27 | QML 新增「刷时长」入口，工作台接入模式互斥 | `b2a7031` |
 | 2026-11-27 | `UCampusBot` 接入 `ModeGuard` 与刷时长宿主构建 | `e635129` |
