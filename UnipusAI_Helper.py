@@ -11571,6 +11571,33 @@ class AISolver:
                     break
         return "continue", (special_handled, self_check_handled)
 
+    def _advance_to_next_question(self, next_btn, current_signature, page_num):
+        """点击「下一题」并确认内容已变化（D-03 阶段拆分之三）。
+
+        返回：
+          ("none", None)        → 没有「下一题」按钮，交由外层判断是否结束
+          ("next", new_page)    → 翻页成功，外层用新页码并 continue
+          ("stop", None)        → 需要外层 return False（点击失败/内容未变/超页数/用户停止）
+        """
+        if not next_btn:
+            return "none", None
+        print(f"    点击下一题...")
+        if self._should_stop():
+            return "stop", None
+        if not WebDriverHelper.safe_click(self.driver, next_btn):
+            print(f"    点击下一题失败")
+            return "stop", None
+        if not self._wait_for_content_change(current_signature, timeout=30):
+            if self._should_stop():
+                return "stop", None
+            print(f"    内容未变化，未确认翻页完成")
+            return "stop", None
+        page_num += 1
+        if page_num > 50:
+            print(f"    达到最大页数限制，停止")
+            return "stop", None
+        return "next", page_num
+
     def _process_current_tab_content(self, chapter_name: str, tab_name: str, l1_idx: int, l2_idx: int,
                                      prefetch: Optional[AnswerPrefetch] = None,
                                      prefetch_signature: str = "",
@@ -11913,27 +11940,11 @@ class AISolver:
                 if self._should_stop():
                     return False
             next_btn = self._find_next_question_button()
-            if next_btn:
-                print(f"    点击下一题...")
-                pre_click_signature = current_signature
-
-                if self._should_stop():
-                    return False
-                if not WebDriverHelper.safe_click(self.driver, next_btn):
-                    print(f"    点击下一题失败")
-                    return False
-
-                if not self._wait_for_content_change(pre_click_signature, timeout=30):
-                    if self._should_stop():
-                        return False
-                    print(f"    内容未变化，未确认翻页完成")
-                    return False
-
-                page_num += 1
-
-                if page_num > 50:
-                    print(f"    达到最大页数限制，停止")
-                    return False
+            advance_action, new_page = self._advance_to_next_question(next_btn, current_signature, page_num)
+            if advance_action == "stop":
+                return False
+            if advance_action == "next":
+                page_num = new_page
                 continue
 
             if self._should_stop():

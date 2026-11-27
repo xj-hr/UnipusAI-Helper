@@ -25,6 +25,7 @@ tests/
 !tests/test_swallow.py
 !tests/test_page_parse_baseline.py
 !tests/test_special_questions.py
+!tests/test_next_question.py
 !tests/fixtures/
 !tests/fixtures/*.html
 .pytest_cache/
