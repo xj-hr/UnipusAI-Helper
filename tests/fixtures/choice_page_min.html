@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>choice page fixture</title></head>
+<body>
+<!--
+  最小化的「新版播放器」判断题页，结构与真实页面一致（取自 logs/samples/sweep15_parse.html）：
+    layoutBody-container
+      └ layout-reply-container > reply-wrap
+          └ question-common-abs-reply
+              └ question-common-abs-choice
+                  ├ component-htmlview ques-title   （题干）
+                  └ option-wrap > option > caption + component-htmlview content
+  文本为自造内容，仅用于解析基线测试，不含任何课程原文。
+-->
+<div class="layoutBody-container">
+  <div class="layout-reply-container">
+    <div class="reply-wrap">
+
+      <div class="question-common-abs-reply">
+        <div class="question-common-abs-choice">
+          <div class="component-htmlview ques-title"><p>1. The library opens at nine in the morning.</p></div>
+          <div class="option-wrap">
+            <div class="option isNotReview"><div class="caption">A</div><div class="component-htmlview content"><p>True.</p></div></div>
+            <div class="option isNotReview"><div class="caption">B</div><div class="component-htmlview content"><p>False.</p></div></div>
+            <div class="option isNotReview"><div class="caption">C</div><div class="component-htmlview content"><p>Not given.</p></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="question-common-abs-reply">
+        <div class="question-common-abs-choice">
+          <div class="component-htmlview ques-title"><p>2. Students may borrow at most five books.</p></div>
+          <div class="option-wrap">
+            <div class="option isNotReview"><div class="caption">A</div><div class="component-htmlview content"><p>True.</p></div></div>
+            <div class="option isNotReview"><div class="caption">B</div><div class="component-htmlview content"><p>False.</p></div></div>
+            <div class="option isNotReview"><div class="caption">C</div><div class="component-htmlview content"><p>Not given.</p></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="question-common-abs-reply">
+        <div class="question-common-abs-choice">
+          <div class="component-htmlview ques-title"><p>3. The reading room is closed on Sundays.</p></div>
+          <div class="option-wrap">
+            <div class="option isNotReview"><div class="caption">A</div><div class="component-htmlview content"><p>True.</p></div></div>
+            <div class="option isNotReview"><div class="caption">B</div><div class="component-htmlview content"><p>False.</p></div></div>
+            <div class="option isNotReview"><div class="caption">C</div><div class="component-htmlview content"><p>Not given.</p></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

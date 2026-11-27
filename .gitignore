@@ -23,6 +23,9 @@ tests/
 !tests/test_time_brushing.py
 !tests/test_time_brushing_controller.js
 !tests/test_swallow.py
+!tests/test_page_parse_baseline.py
+!tests/fixtures/
+!tests/fixtures/*.html
 .pytest_cache/
 # 本地排查产物（截图、真机扫描快照、探针脚本）
 output/
