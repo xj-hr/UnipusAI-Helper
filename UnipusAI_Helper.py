@@ -11598,6 +11598,67 @@ class AISolver:
             return "stop", None
         return "next", page_num
 
+    def _answer_record_questions(self, active_records, normal_questions, directions,
+                                 page_num, skip_mode, prefetch, total_questions):
+        """逐条处理录音/跟读题（D-03 阶段拆分之四）。
+
+        返回：
+          ("stop", None) → 外层 return False
+          ("ok", (record_answered, normal_questions, total_questions, prefetch))
+                         → 外层据此更新计数与后续流程（prefetch 可能被词表切页重置为 None）
+        """
+        if page_num == 1 and not len(self._vocab()) and self._needs_vocabulary(active_records):
+            switched = self._harvest_from_vocabulary_tab()
+            if switched is None:
+                return "stop", None
+            if switched:
+                questions, directions = self.parser.parse_all()
+                if self.parser.incomplete or self._should_stop():
+                    return "stop", None
+                normal_questions = [q for q in questions if q.q_type not in [
+                    QuestionType.VOCABULARY_FLASHCARD,
+                    QuestionType.VIDEO,
+                    QuestionType.AUDIO,
+                    QuestionType.SELF_CHECK,
+                    QuestionType.DISCUSSION_BOARD
+                ]]
+                record_questions = [q for q in normal_questions
+                                    if q.q_type in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
+                skipped_records = [q for q in record_questions
+                                   if should_skip_record_question(q, skip_mode)]
+                active_records = [q for q in record_questions if q not in skipped_records]
+                normal_questions = [q for q in normal_questions if q not in skipped_records]
+                total_questions = len(normal_questions)
+                prefetch = None
+
+        print(f"    本页 {len(active_records)} 道录音题，开始逐条录音...")
+        record_answered = 0
+        for q in active_records:
+            if self._should_stop():
+                return "stop", None
+            needs_tts = q.needs_speech_script or q.q_type == QuestionType.ORAL_ALOUD
+            if needs_tts and not self._tts().enabled:
+                print("    录音题没有原声，TTS 已关闭，跳过该题")
+                continue
+            script = ""
+            if q.q_type == QuestionType.RECORD and q.needs_speech_script:
+                if not self._ai_available():
+                    print("    主观口语题需要 AI 写稿，但未配置 AI 接口，跳过该任务")
+                    self._last_tab_outcome = 'skipped_no_ai'
+                    return "stop", None
+                script = self._speaking_script_for(q, directions)
+                if not script:
+                    continue
+            if self.executor.execute(q, script):
+                record_answered += 1
+        print(f"    录音题完成 {record_answered}/{len(active_records)}")
+        if record_answered < len(active_records):
+            print("    录音题未完成，停止当前页")
+            return "stop", None
+        normal_questions = [q for q in normal_questions
+                            if q.q_type not in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
+        return "ok", (record_answered, normal_questions, total_questions, prefetch)
+
     def _process_current_tab_content(self, chapter_name: str, tab_name: str, l1_idx: int, l2_idx: int,
                                      prefetch: Optional[AnswerPrefetch] = None,
                                      prefetch_signature: str = "",
@@ -11691,55 +11752,12 @@ class AISolver:
                 print(f"    本页 {len(skipped_records)} 道跟读/录音题，已按配置（{skip_mode}）自动跳过")
             record_answered = 0
             if active_records:
-                if page_num == 1 and not len(self._vocab()) and self._needs_vocabulary(active_records):
-                    switched = self._harvest_from_vocabulary_tab()
-                    if switched is None:
-                        return False
-                    if switched:
-                        questions, directions = self.parser.parse_all()
-                        if self.parser.incomplete or self._should_stop():
-                            return False
-                        normal_questions = [q for q in questions if q.q_type not in [
-                            QuestionType.VOCABULARY_FLASHCARD,
-                            QuestionType.VIDEO,
-                            QuestionType.AUDIO,
-                            QuestionType.SELF_CHECK,
-                            QuestionType.DISCUSSION_BOARD
-                        ]]
-                        record_questions = [q for q in normal_questions
-                                            if q.q_type in (QuestionType.RECORD, QuestionType.ORAL_ALOUD)]
-                        skipped_records = [q for q in record_questions
-                                           if should_skip_record_question(q, skip_mode)]
-                        active_records = [q for q in record_questions if q not in skipped_records]
-                        normal_questions = [q for q in normal_questions if q not in skipped_records]
-                        total_questions = len(normal_questions)
-                        prefetch = None
-                print(f"    本页 {len(active_records)} 道录音题，开始逐条录音...")
-                for q in active_records:
-                    if self._should_stop():
-                        return False
-                    needs_tts = q.needs_speech_script or q.q_type == QuestionType.ORAL_ALOUD
-                    if needs_tts and not self._tts().enabled:
-                        print("    录音题没有原声，TTS 已关闭，跳过该题")
-                        continue
-                    script = ""
-                    if q.q_type == QuestionType.RECORD and q.needs_speech_script:
-                        if not self._ai_available():
-                            print("    主观口语题需要 AI 写稿，但未配置 AI 接口，跳过该任务")
-                            self._last_tab_outcome = 'skipped_no_ai'
-                            return False
-                        script = self._speaking_script_for(q, directions)
-                        if not script:
-                            continue
-                    if self.executor.execute(q, script):
-                        record_answered += 1
-                print(f"    录音题完成 {record_answered}/{len(active_records)}")
-                if record_answered < len(active_records):
-                    print("    录音题未完成，停止当前页")
+                record_status, record_result = self._answer_record_questions(
+                    active_records, normal_questions, directions, page_num, skip_mode,
+                    prefetch, total_questions)
+                if record_status == "stop":
                     return False
-                normal_questions = [q for q in normal_questions
-                                    if q.q_type not in (QuestionType.RECORD,
-                                                        QuestionType.ORAL_ALOUD)]
+                record_answered, normal_questions, total_questions, prefetch = record_result
                 if not normal_questions:
                     total_answered += record_answered
                     print(f"    本页成功填写 {record_answered}/{total_questions} 题")
